@@ -1,0 +1,200 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  fireEvent,
+} from '@testing-library/svelte';
+import userEvent from '@testing-library/user-event';
+import type { Command, Snapshot, Task } from './lib/api';
+import App from './App.svelte';
+
+const mocked = vi.hoisted(() => ({
+  invoke: vi.fn(),
+  listen: vi.fn(async () => () => {}),
+  hide: vi.fn(),
+}));
+vi.mock('@tauri-apps/api/core', () => ({
+  isTauri: () => true,
+  invoke: mocked.invoke,
+}));
+vi.mock('@tauri-apps/api/event', () => ({ listen: mocked.listen }));
+vi.mock('@tauri-apps/api/window', () => ({
+  getCurrentWindow: () => ({ hide: mocked.hide }),
+}));
+const task: Task = {
+  id: '01TEST',
+  title: 'Read a chapter',
+  notes: '',
+  status: 'todo',
+  priority: 2,
+  energy: 'low',
+  est_min: 30,
+  actual_min: 0,
+  due_at: null,
+  planned_day: '2026-11-02',
+  scheduled_start: null,
+  scheduled_end: null,
+  parent_id: null,
+  tags: ['#college'],
+  carried_count: 0,
+  created_at: '2026-11-02T00:00:00Z',
+  completed_at: null,
+  deleted_at: null,
+  reminded_at: null,
+};
+let snapshot: Snapshot;
+beforeEach(() => {
+  vi.clearAllMocks();
+  snapshot = {
+    tasks: [structuredClone(task)],
+    settings: {
+      timezone: 'UTC',
+      max_tasks: 8,
+      max_minutes: 360,
+      work_start: 9,
+      work_end: 18,
+    },
+    today: '2026-11-02',
+    capacity: { count: 1, minutes: 30, over_count: false, over_minutes: false },
+    tags: ['#college'],
+  };
+  mocked.invoke.mockImplementation(
+    async (_name: string, args: { command: Command }) => {
+      if (args.command.command === 'snapshot')
+        return { type: 'snapshot', data: structuredClone(snapshot) };
+      if (args.command.command === 'complete_task')
+        snapshot.tasks[0].status = 'done';
+      return { type: 'task', data: structuredClone(task) };
+    },
+  );
+});
+afterEach(cleanup);
+describe('desktop task flows', () => {
+  it('keeps unscheduled todo tasks reachable in the inbox', async () => {
+    snapshot.tasks[0].planned_day = null;
+    const user = userEvent.setup();
+    render(App);
+    await screen.findByText('A little space to think.');
+    await user.click(screen.getByRole('button', { name: /▣Inbox/ }));
+    expect(await screen.findByText('Read a chapter')).toBeTruthy();
+  });
+  it('sends capture unchanged to Rust and clears it only after success', async () => {
+    const user = userEvent.setup();
+    render(App);
+    await screen.findByText('Read a chapter');
+    await user.type(
+      screen.getByLabelText('Quick add task'),
+      'Write tests #work p1 45m tomorrow',
+    );
+    await user.click(screen.getByRole('button', { name: /Add task/ }));
+    await waitFor(() =>
+      expect(mocked.invoke).toHaveBeenCalledWith('dispatch', {
+        command: {
+          command: 'create_task',
+          input: { text: 'Write tests #work p1 45m tomorrow', parent_id: null },
+        },
+      }),
+    );
+    await waitFor(() =>
+      expect(
+        (screen.getByLabelText('Quick add task') as HTMLInputElement).value,
+      ).toBe(''),
+    );
+  });
+  it('preserves failed capture and presents the command error', async () => {
+    const user = userEvent.setup();
+    render(App);
+    await screen.findByText('Read a chapter');
+    mocked.invoke.mockImplementation(
+      async (_name: string, args: { command: Command }) => {
+        if (args.command.command === 'create_task')
+          throw new Error('Invalid date');
+        return { type: 'snapshot', data: snapshot };
+      },
+    );
+    await user.type(screen.getByLabelText('Quick add task'), 'Read 2026-02-30');
+    await user.click(screen.getByRole('button', { name: /Add task/ }));
+    await screen.findByRole('alert');
+    expect(screen.getByRole('alert').textContent).toContain('Invalid date');
+    expect(
+      (screen.getByLabelText('Quick add task') as HTMLInputElement).value,
+    ).toBe('Read 2026-02-30');
+  });
+  it('completes a task and removes it from Today', async () => {
+    const user = userEvent.setup();
+    render(App);
+    await screen.findByText('Read a chapter');
+    await user.click(
+      screen.getByRole('button', { name: 'Complete Read a chapter' }),
+    );
+    await waitFor(() =>
+      expect(screen.queryByText('Read a chapter')).toBeNull(),
+    );
+    expect(mocked.invoke).toHaveBeenCalledWith('dispatch', {
+      command: {
+        command: 'complete_task',
+        input: { id: task.id, completed: true },
+      },
+    });
+  });
+  it('stages time-block edits without writing until Save', async () => {
+    const user = userEvent.setup();
+    render(App);
+    await screen.findByText('Read a chapter');
+    await user.click(
+      screen.getByRole('button', { name: /Read a chapter.*#college/ }),
+    );
+    const input = screen.getByLabelText('Schedule task time');
+    await fireEvent.input(input, { target: { value: '2026-11-02T11:00' } });
+    expect(
+      mocked.invoke.mock.calls.some(
+        ([, args]) => args.command.command === 'reschedule_task',
+      ),
+    ).toBe(false);
+    await user.click(screen.getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+  it('saves details and time block through one atomic command', async () => {
+    const user = userEvent.setup();
+    render(App);
+    await screen.findByText('Read a chapter');
+    await user.click(
+      screen.getByRole('button', { name: /Read a chapter.*#college/ }),
+    );
+    await fireEvent.input(screen.getByLabelText('Schedule task time'), {
+      target: { value: '2026-11-02T11:00' },
+    });
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    const writes = mocked.invoke.mock.calls.filter(
+      ([, args]) => args.command.command !== 'snapshot',
+    );
+    expect(writes).toHaveLength(1);
+    expect(writes[0][1].command).toMatchObject({
+      command: 'update_task',
+      input: { id: task.id, scheduled_local: '2026-11-02T11:00' },
+    });
+  });
+  it('does not invite duplicate capture when saving succeeds but refresh fails', async () => {
+    const user = userEvent.setup();
+    render(App);
+    await screen.findByText('Read a chapter');
+    mocked.invoke.mockImplementation(
+      async (_name: string, args: { command: Command }) => {
+        if (args.command.command === 'snapshot')
+          throw new Error('Database temporarily unavailable');
+        return { type: 'task', data: task };
+      },
+    );
+    await user.type(screen.getByLabelText('Quick add task'), 'A new task');
+    await user.click(screen.getByRole('button', { name: /Add task/ }));
+    await waitFor(() =>
+      expect(
+        (screen.getByLabelText('Quick add task') as HTMLInputElement).value,
+      ).toBe(''),
+    );
+    expect(screen.getByRole('alert').textContent).toContain('Saved, but');
+  });
+});

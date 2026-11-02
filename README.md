@@ -1,0 +1,119 @@
+# Daybridge
+
+A quiet, local-first desktop task planner. Capture a thought, give it a place in your day, and get back to work.
+
+**Early development release:** the foundation and daily-planning slice of the [original Dayboard build plan](<Dayboard — Build Plan.md>). Built with Tauri 2, Svelte 5, Rust and SQLite. No account, cloud service, telemetry, API key or AI subscription is required to run it.
+
+## Run your own copy
+
+Fork this repository on GitHub, then clone **your fork's URL** from its Code menu. In the cloned directory:
+
+```sh
+npm ci
+npm run desktop
+```
+
+Install these prerequisites first:
+
+| Platform     | Prerequisites                                                                                                                           |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+| All          | Git, Node.js 24.15+ LTS or 26+, npm, Rust stable via rustup, a supported desktop session                                                |
+| Windows      | Visual Studio Build Tools with **Desktop development with C++**, Windows SDK, Microsoft Edge WebView2 Runtime                           |
+| macOS        | Xcode command-line tools (`xcode-select --install`)                                                                                     |
+| Ubuntu 24.04 | `sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev librsvg2-dev libayatana-appindicator3-dev` |
+
+See [Tauri's platform prerequisites](https://v2.tauri.app/start/prerequisites/) for other distributions. Restart your terminal after installing Rust so `cargo` is available. First native builds take several minutes.
+
+`npm run dev` opens the frontend development surface only; it deliberately does not simulate or save tasks in a browser. Use `npm run desktop` for the working app.
+
+On first use, open **Preferences → Use this device's timezone**, then save. The initial timezone is UTC. Set your daily task/minute caps and work hours there too.
+
+## What works
+
+- Inbox, Today, seven-day planner, completed/dropped tasks and global FTS5 search.
+- Quick capture with `#area`, `@context`, `!type`, `p1`–`p4`, `45m`, `1h30m`, `today`, `tomorrow`, weekdays, `next week`, ISO dates and 12/24-hour times.
+- Task editing, notes, parent/subtask links, energy, estimate/actual minutes, soft delete and immediate restore.
+- Drag-to-hour time blocking, accessible date/time fields, capacity warnings and rule-based plan suggestions.
+- Calendar rollover with carried counts, preserving original due deadlines.
+- Tray menu, single instance, global capture and event-driven native reminders.
+- Typed command/response schemas, transactional append-only event history and destructive dry-runs, ready for a future adapter.
+
+```text
+Solve two sliding window problems #dsa @deep p1 45m today 7pm
+Read a chapter #college p2 1h30m tomorrow
+Review notes !revision fri 09:30
+```
+
+Recognized metadata tokens are removed from the title. Date-only capture means 17:00 in your configured timezone; time-only means today. Unsupported future syntax (recurrence and goal links) remains literal title text. Ambiguous/nonexistent daylight-saving times are rejected so you can choose another time.
+
+| Shortcut                 | Action                                                                 |
+| ------------------------ | ---------------------------------------------------------------------- |
+| Ctrl/Cmd + Shift + Space | Global quick capture; tray menu is the fallback if another app owns it |
+| Ctrl/Cmd + K             | Navigation palette                                                     |
+| N / `/`                  | Focus capture / search                                                 |
+| J / K                    | Select next / previous task (when not in a field or button)            |
+| X / E                    | Complete or reopen / edit selected task                                |
+| Escape                   | Close editor, palette or capture                                       |
+
+Closing the main window **hides it to the tray**. Choose **Quit** in the tray menu to exit. Enable OS notifications for Daybridge. Reminders run in Rust even when the window is hidden; the app must remain running. Install a packaged build for the most reliable Windows notification identity. There is no autostart yet.
+
+## Data and privacy
+
+SQLite lives in Tauri's app-data directory under `dev.daybridge.desktop`, never in the Git checkout:
+
+- Windows: `%APPDATA%\dev.daybridge.desktop\daybridge.sqlite3`
+- macOS: `~/Library/Application Support/dev.daybridge.desktop/daybridge.sqlite3`
+- Linux: `~/.local/share/dev.daybridge.desktop/daybridge.sqlite3`
+
+For an isolated testing or portable data directory, set `DAYBRIDGE_DATA_DIR` to an absolute directory before starting the app. The default remains the OS app-data directory.
+
+The DB uses WAL, migrations and foreign keys. Mutations and audit events commit together. Deleted tasks are retained; task history can contain previous titles/notes. The database is **not encrypted**. To manually back up, quit through the tray and copy the database; while running, SQLite may also need its WAL file. Automatic backups/export are future work.
+
+The app makes no runtime network requests. Installing dependencies and building may download packages/tooling. `.gitignore` excludes databases, WALs, backups, exports, environment files, keys, build output and private agent state. Review `git status` before publishing; ignore rules cannot undo a secret already committed.
+
+## Spec-driven development
+
+This project was initialized using the official **GitHub Spec Kit / Specify CLI**, not a hand-written imitation:
+
+```sh
+uv tool install specify-cli --from git+https://github.com/github/spec-kit.git@7370e592f3cd9c06e5b698983957e227c75b30e2
+specify check
+```
+
+The pinned revision identifies the initialization tooling used here. `uv` is needed only for Spec Kit, not for running Daybridge. Shared infrastructure is in `.specify/` and reusable Codex skills in `.agents/skills/`. No local agent credentials are committed.
+
+Read the [constitution](.specify/memory/constitution.md), [feature spec](specs/001-desktop-foundation/spec.md), [plan](specs/001-desktop-foundation/plan.md) and [tasks](specs/001-desktop-foundation/tasks.md). In a Codex session, use the installed workflow:
+
+```text
+$speckit-specify <describe one feature and its acceptance criteria>
+$speckit-plan
+$speckit-tasks
+$speckit-implement
+$speckit-analyze
+```
+
+The CLI scaffolds the workflow; your coding agent performs the reasoning and implementation. Do not expect a `specify implement` shell command. Other agent integrations can be installed with `specify integration install <agent>`. See [official Spec Kit documentation](https://github.github.com/spec-kit/) and [contributing](CONTRIBUTING.md).
+
+## Validate and package
+
+```sh
+npm run check
+npm run lint
+npm test
+npm run build
+cargo fmt --all -- --check
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
+npm run schemas
+npm run tauri build
+```
+
+Native installers appear under `target/release/bundle/`. A Windows x64 NSIS installer was built locally during implementation; see the validation record. GitHub Actions runs the quality checks on Windows, macOS and Linux. A manual **Package desktop app** workflow builds installers as downloadable workflow artifacts. It does not publish a release or require signing secrets. Fork maintainers should add their own signing/notarization before distributing publicly; unsigned installers may produce OS trust prompts.
+
+## Roadmap and limitations
+
+Phases 3–7 remain separate work: projects/goals/templates, DSA/SRS, college prep, habits/focus/stats, recurrence, import/export/rolling backups, optional Jarvis MCP/HTTP bridge, updater and autostart. There is no active bridge or listening server in the packaged application.
+
+Native webview suspension, fresh-machine installation on all three OSes, notification permissions, accessibility with a screen reader, and the plan's performance budgets need manual validation. Hidden UI avoids interval work, but this is not a claim that every OS suspends its webview. Task DOM rendering is bounded; snapshots currently load all task data, so very large archives need database pagination in a later performance pass. See [validation notes](docs/validation.md).
+
+MIT licensed. You can fork, modify and share it.

@@ -1,0 +1,6 @@
+docs/schemas/
+dist/
+target/
+node_modules/
+.specify/
+.agents/

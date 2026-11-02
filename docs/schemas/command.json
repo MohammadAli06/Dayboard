@@ -1,0 +1,442 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Command",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string",
+          "const": "ping_db"
+        }
+      },
+      "required": [
+        "command"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string",
+          "const": "snapshot"
+        },
+        "input": {
+          "type": "object",
+          "properties": {
+            "search": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        }
+      },
+      "required": [
+        "command",
+        "input"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string",
+          "const": "parse_quick_add"
+        },
+        "input": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "text"
+          ]
+        }
+      },
+      "required": [
+        "command",
+        "input"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string",
+          "const": "create_task"
+        },
+        "input": {
+          "type": "object",
+          "properties": {
+            "parent_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "text"
+          ]
+        }
+      },
+      "required": [
+        "command",
+        "input"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string",
+          "const": "update_task"
+        },
+        "input": {
+          "$ref": "#/$defs/TaskEdit"
+        }
+      },
+      "required": [
+        "command",
+        "input"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string",
+          "const": "complete_task"
+        },
+        "input": {
+          "type": "object",
+          "properties": {
+            "completed": {
+              "type": "boolean"
+            },
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "completed"
+          ]
+        }
+      },
+      "required": [
+        "command",
+        "input"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string",
+          "const": "delete_task"
+        },
+        "input": {
+          "type": "object",
+          "properties": {
+            "dry_run": {
+              "type": "boolean"
+            },
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "dry_run"
+          ]
+        }
+      },
+      "required": [
+        "command",
+        "input"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string",
+          "const": "restore_task"
+        },
+        "input": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ]
+        }
+      },
+      "required": [
+        "command",
+        "input"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string",
+          "const": "reschedule_task"
+        },
+        "input": {
+          "type": "object",
+          "properties": {
+            "day": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "date"
+            },
+            "dry_run": {
+              "type": "boolean"
+            },
+            "id": {
+              "type": "string"
+            },
+            "local_start": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "dry_run"
+          ]
+        }
+      },
+      "required": [
+        "command",
+        "input"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string",
+          "const": "rollover"
+        },
+        "input": {
+          "type": "object",
+          "properties": {
+            "dry_run": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "dry_run"
+          ]
+        }
+      },
+      "required": [
+        "command",
+        "input"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string",
+          "const": "save_settings"
+        },
+        "input": {
+          "$ref": "#/$defs/Settings"
+        }
+      },
+      "required": [
+        "command",
+        "input"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string",
+          "const": "plan_day"
+        },
+        "input": {
+          "type": "object",
+          "properties": {
+            "day": {
+              "type": "string",
+              "format": "date"
+            },
+            "energy": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Energy"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "day"
+          ]
+        }
+      },
+      "required": [
+        "command",
+        "input"
+      ]
+    }
+  ],
+  "$defs": {
+    "Energy": {
+      "type": "string",
+      "enum": [
+        "low",
+        "high"
+      ]
+    },
+    "Settings": {
+      "type": "object",
+      "properties": {
+        "max_minutes": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "max_tasks": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "timezone": {
+          "type": "string"
+        },
+        "work_end": {
+          "type": "integer",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0
+        },
+        "work_start": {
+          "type": "integer",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0
+        }
+      },
+      "required": [
+        "timezone",
+        "max_tasks",
+        "max_minutes",
+        "work_start",
+        "work_end"
+      ]
+    },
+    "Status": {
+      "type": "string",
+      "enum": [
+        "inbox",
+        "todo",
+        "doing",
+        "done",
+        "dropped"
+      ]
+    },
+    "TaskEdit": {
+      "type": "object",
+      "properties": {
+        "actual_min": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "due_local": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "energy": {
+          "$ref": "#/$defs/Energy"
+        },
+        "est_min": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "id": {
+          "type": "string"
+        },
+        "notes": {
+          "type": "string"
+        },
+        "parent_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "planned_day": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        },
+        "priority": {
+          "type": "integer",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0
+        },
+        "scheduled_local": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "$ref": "#/$defs/Status"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "notes",
+        "status",
+        "priority",
+        "energy",
+        "est_min",
+        "actual_min",
+        "tags"
+      ]
+    }
+  }
+}

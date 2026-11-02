@@ -1,0 +1,11 @@
+CREATE TABLE tasks(id TEXT PRIMARY KEY, data TEXT NOT NULL CHECK(json_valid(data)), status TEXT NOT NULL, planned_day TEXT, due_at TEXT, created_at TEXT NOT NULL, deleted INTEGER NOT NULL DEFAULT 0);
+CREATE INDEX tasks_day ON tasks(planned_day,deleted,status);
+CREATE INDEX tasks_due ON tasks(due_at,deleted);
+CREATE VIRTUAL TABLE task_search USING fts5(id UNINDEXED,title,notes,tags);
+CREATE TABLE tags(id TEXT PRIMARY KEY,name TEXT NOT NULL UNIQUE);
+CREATE TABLE task_tags(task_id TEXT NOT NULL REFERENCES tasks(id),tag_id TEXT NOT NULL REFERENCES tags(id),PRIMARY KEY(task_id,tag_id));
+CREATE TABLE events(id TEXT PRIMARY KEY,ts TEXT NOT NULL,actor TEXT NOT NULL CHECK(actor IN ('user','ui','jarvis')),entity TEXT NOT NULL,entity_id TEXT NOT NULL,action TEXT NOT NULL,payload TEXT NOT NULL CHECK(json_valid(payload)));
+CREATE TRIGGER events_no_update BEFORE UPDATE ON events BEGIN SELECT RAISE(ABORT,'events are append-only'); END;
+CREATE TRIGGER events_no_delete BEFORE DELETE ON events BEGIN SELECT RAISE(ABORT,'events are append-only'); END;
+CREATE TABLE settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);
+INSERT INTO settings VALUES('preferences','{"timezone":"UTC","max_tasks":8,"max_minutes":360,"work_start":9,"work_end":18}');

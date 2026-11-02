@@ -1,0 +1,81 @@
+# Dependencies and build output
+node_modules/
+dist/
+target/
+src-tauri/gen/
+src-tauri/icons/android/
+src-tauri/icons/ios/
+*.tsbuildinfo
+.vite/
+.turbo/
+coverage/
+test-results/
+playwright-report/
+*.log
+.eslintcache
+.prettiercache
+
+# Local databases, backups, exports and runtime state
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+backups/
+exports/
+.daybridge/
+.daybridge-data/
+*.sock
+*.pid
+
+# Secrets and signing material
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.mobileprovision
+*.token
+secrets.json
+*.secrets.json
+
+# Bridge / MCP (Jarvis) local config and event stream
+.mcp.json
+mcp.json
+*.mcp.json
+events.jsonl
+*.events.jsonl
+
+# Rust coverage
+*.profraw
+*.profdata
+lcov.info
+
+# Agent and tool state (per-machine)
+.codex/
+.claude/
+.commandcode/
+.gemini/
+.cursor/
+.windsurf/
+.aider*
+.agents/*
+!.agents/skills/
+.specify/feature.json
+.specify/extensions/.cache/
+.specify/**/*.log
+
+# OS and editor noise
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+*.local

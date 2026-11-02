@@ -1,0 +1,21 @@
+[package]
+name = "daybridge"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+[dependencies]
+dayboard-core = { path = "../crates/dayboard-core" }
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-notification = "2"
+tauri-plugin-single-instance = "2"
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+chrono-tz.workspace = true
+tokio = { version = "1", features = ["time", "sync", "macros"] }
+[features]
+custom-protocol = ["tauri/custom-protocol"]

@@ -1,0 +1,390 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Response",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "const": "pong"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/Snapshot"
+        },
+        "type": {
+          "type": "string",
+          "const": "snapshot"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/ParsedTask"
+        },
+        "type": {
+          "type": "string",
+          "const": "parsed"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/Task"
+        },
+        "type": {
+          "type": "string",
+          "const": "task"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Task"
+          }
+        },
+        "type": {
+          "type": "string",
+          "const": "tasks"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/Settings"
+        },
+        "type": {
+          "type": "string",
+          "const": "settings"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ]
+    }
+  ],
+  "$defs": {
+    "Capacity": {
+      "type": "object",
+      "properties": {
+        "count": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "minutes": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "over_count": {
+          "type": "boolean"
+        },
+        "over_minutes": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "count",
+        "minutes",
+        "over_count",
+        "over_minutes"
+      ]
+    },
+    "Energy": {
+      "type": "string",
+      "enum": [
+        "low",
+        "high"
+      ]
+    },
+    "ParsedTask": {
+      "type": "object",
+      "properties": {
+        "due_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "energy": {
+          "$ref": "#/$defs/Energy"
+        },
+        "est_min": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "planned_day": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        },
+        "priority": {
+          "type": "integer",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "priority",
+        "energy",
+        "est_min",
+        "tags"
+      ]
+    },
+    "Settings": {
+      "type": "object",
+      "properties": {
+        "max_minutes": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "max_tasks": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "timezone": {
+          "type": "string"
+        },
+        "work_end": {
+          "type": "integer",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0
+        },
+        "work_start": {
+          "type": "integer",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0
+        }
+      },
+      "required": [
+        "timezone",
+        "max_tasks",
+        "max_minutes",
+        "work_start",
+        "work_end"
+      ]
+    },
+    "Snapshot": {
+      "type": "object",
+      "properties": {
+        "capacity": {
+          "$ref": "#/$defs/Capacity"
+        },
+        "settings": {
+          "$ref": "#/$defs/Settings"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "tasks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Task"
+          }
+        },
+        "today": {
+          "type": "string",
+          "format": "date"
+        }
+      },
+      "required": [
+        "tasks",
+        "settings",
+        "today",
+        "capacity",
+        "tags"
+      ]
+    },
+    "Status": {
+      "type": "string",
+      "enum": [
+        "inbox",
+        "todo",
+        "doing",
+        "done",
+        "dropped"
+      ]
+    },
+    "Task": {
+      "type": "object",
+      "properties": {
+        "actual_min": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "carried_count": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "completed_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "deleted_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "due_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "energy": {
+          "$ref": "#/$defs/Energy"
+        },
+        "est_min": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "id": {
+          "type": "string"
+        },
+        "notes": {
+          "type": "string"
+        },
+        "parent_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "planned_day": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        },
+        "priority": {
+          "type": "integer",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0
+        },
+        "reminded_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "scheduled_end": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "scheduled_start": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "status": {
+          "$ref": "#/$defs/Status"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "notes",
+        "status",
+        "priority",
+        "energy",
+        "est_min",
+        "actual_min",
+        "tags",
+        "carried_count",
+        "created_at"
+      ]
+    }
+  }
+}

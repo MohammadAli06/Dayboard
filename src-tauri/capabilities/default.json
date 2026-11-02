@@ -1,0 +1,1 @@
+{ "$schema": "../gen/schemas/desktop-schema.json", "identifier": "desktop", "description": "Local task UI and capture window", "windows": ["main", "capture"], "permissions": ["core:default", "core:window:allow-hide"] }

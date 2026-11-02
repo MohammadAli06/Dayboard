@@ -1,0 +1,19 @@
+[package]
+name = "dayboard-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+chrono-tz.workspace = true
+schemars.workspace = true
+rusqlite = { version = "0.37", features = ["bundled", "backup"] }
+rusqlite_migration = "2.3"
+ulid = "1"
+thiserror = "2"
+regex = "1"
+[dev-dependencies]
+tempfile = "3"
