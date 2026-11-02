@@ -4,17 +4,17 @@ use dayboard_core::{
     model::{Actor, Command, Response},
     Core,
 };
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tauri::{Emitter, Manager};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 use tauri_plugin_notification::NotificationExt;
 
 struct State {
-    core: Mutex<Core>,
+    core: tokio::sync::Mutex<Core>,
     changed: Arc<tokio::sync::Notify>,
 }
 #[tauri::command]
-fn dispatch(
+async fn dispatch(
     app: tauri::AppHandle,
     state: tauri::State<'_, State>,
     command: Command,
@@ -26,16 +26,24 @@ fn dispatch(
             | Command::ParseQuickAdd { .. }
             | Command::PlanDay { .. }
     );
-    let response = state
-        .core
-        .lock()
-        .map_err(|_| "Database lock unavailable")?
-        .execute(command, Actor::Ui, Utc::now())
-        .map_err(|e| e.to_string())?;
-    if !is_read {
+    // Never hold this lock across notification, tray or webview work: those
+    // calls can block waiting for the UI thread, which would deadlock it.
+    let (response, remaining) = {
+        let mut core = state.core.lock().await;
+        let response = core
+            .execute(command, Actor::Ui, Utc::now())
+            .map_err(|e| e.to_string())?;
+        let remaining = if is_read {
+            None
+        } else {
+            Some(core.today_count(Utc::now()).unwrap_or(0))
+        };
+        (response, remaining)
+    };
+    if let Some(remaining) = remaining {
         state.changed.notify_one();
         let _ = app.emit("daybridge:changed", ());
-        update_tray(&app);
+        update_tray(&app, remaining);
     }
     Ok(response)
 }
@@ -47,22 +55,70 @@ fn show(app: &tauri::AppHandle, label: &str) {
         let _ = w.emit("daybridge:shown", ());
     }
 }
-fn update_tray(app: &tauri::AppHandle) {
-    let state = app.state::<State>();
-    if let Ok(mut core) = state.core.lock() {
-        if let Ok(Response::Snapshot(s)) =
-            core.execute(Command::Snapshot { search: None }, Actor::Ui, Utc::now())
-        {
-            if let Some(tray) = app.tray_by_id("daybridge") {
-                let _ = tray.set_icon(Some(remaining_icon(s.capacity.count)));
-                let _ = tray.set_tooltip(Some(format!(
-                    "Daybridge · {} remaining today",
-                    s.capacity.count
-                )));
-                let _ = tray.set_title(Some(s.capacity.count.to_string()));
-            }
+fn percent_encode_path(value: &str) -> String {
+    let mut out = String::new();
+    for byte in value.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~' | b'/') {
+            out.push(byte as char);
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
         }
+    }
+    out
+}
+#[tauri::command]
+fn open_in_vscode(path: String) -> Result<(), String> {
+    let path = path.trim();
+    if path.is_empty() {
+        return Err("This project has no repository path yet".into());
+    }
+    if !std::path::Path::new(path).exists() {
+        return Err(format!("Repository path does not exist: {path}"));
+    }
+    let normalized = percent_encode_path(&path.replace('\\', "/"));
+    let file = if normalized.starts_with('/') {
+        normalized
+    } else {
+        format!("/{normalized}")
     };
+    let url = format!("vscode://file{file}");
+    let mut command;
+    #[cfg(target_os = "windows")]
+    {
+        command = std::process::Command::new("rundll32");
+        command.args(["url.dll,FileProtocolHandler", &url]);
+    }
+    #[cfg(target_os = "macos")]
+    {
+        command = std::process::Command::new("open");
+        command.arg(&url);
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        command = std::process::Command::new("xdg-open");
+        command.arg(&url);
+    }
+    command
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("Could not open VS Code: {e}"))
+}
+fn update_tray(app: &tauri::AppHandle, remaining: usize) {
+    let icon = remaining_icon(remaining);
+    let tooltip = format!("Daybridge · {remaining} remaining today");
+    let title = remaining.to_string();
+    let handle = app.clone();
+    // Tray handles are owned by the UI thread; marshalling the update keeps a
+    // background reminder from blocking on Win32 SendMessage.
+    let _ = app.run_on_main_thread(move || {
+        if let Some(tray) = handle.tray_by_id("daybridge") {
+            let _ = tray.set_icon(Some(icon));
+            let _ = tray.set_tooltip(Some(tooltip));
+            let _ = tray.set_title(Some(title));
+        }
+    });
 }
 fn remaining_icon(count: usize) -> tauri::image::Image<'static> {
     const DIGITS: [[u8; 5]; 11] = [
@@ -110,55 +166,70 @@ fn main() {
         .plugin(tauri_plugin_single_instance::init(|app, _, _| show(app, "main")))
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().with_handler(|app, _, event| { if event.state() == ShortcutState::Pressed { show(app, "capture"); } }).build())
-        .invoke_handler(tauri::generate_handler![dispatch])
+        .invoke_handler(tauri::generate_handler![dispatch, open_in_vscode])
         .setup(|app| {
             let data = std::env::var_os("DAYBRIDGE_DATA_DIR").map(std::path::PathBuf::from).unwrap_or(app.path().app_data_dir()?); std::fs::create_dir_all(&data)?;
             let mut core = Core::open(data.join("daybridge.sqlite3"))?;
             core.execute(Command::Rollover { dry_run: false }, Actor::Ui, Utc::now())?;
+            let remaining = core.today_count(Utc::now()).unwrap_or(0);
             let changed = Arc::new(tokio::sync::Notify::new());
-            app.manage(State {core: Mutex::new(core), changed: changed.clone()});
+            app.manage(State {core: tokio::sync::Mutex::new(core), changed: changed.clone()});
             let open = tauri::menu::MenuItem::with_id(app, "open", "Open Daybridge", true, None::<&str>)?;
             let capture = tauri::menu::MenuItem::with_id(app, "capture", "Quick capture", true, None::<&str>)?;
             let quit = tauri::menu::MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let menu = tauri::menu::Menu::with_items(app, &[&open, &capture, &quit])?;
             let icon = app.default_window_icon().cloned().ok_or("Missing application icon")?;
             tauri::tray::TrayIconBuilder::with_id("daybridge").icon(icon).menu(&menu).show_menu_on_left_click(true)
-                .on_menu_event(|app, event| match event.id.as_ref() {"open" => show(app, "main"), "capture" => show(app, "capture"), "quit" => { if let Ok(core) = app.state::<State>().core.lock() {let _ = core.checkpoint();} app.exit(0);}, _ => ()}).build(app)?;
+                .on_menu_event(|app, event| match event.id.as_ref() {"open" => show(app, "main"), "capture" => show(app, "capture"), "quit" => { let state = app.state::<State>(); if let Ok(core) = state.core.try_lock() { let _ = core.checkpoint(); } app.exit(0);}, _ => ()}).build(app)?;
             if let Err(e) = app.global_shortcut().register("CommandOrControl+Shift+Space") { eprintln!("Quick capture shortcut unavailable: {e}. Use the tray menu."); }
-            update_tray(app.handle());
+            update_tray(app.handle(), remaining);
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 loop {
                     // No polling: mutations, next reminder, or local midnight are the only wakeups.
-                    let (next, midnight, rolled) = {
+                    let now = Utc::now();
+                    let (next, midnight, rolled, remaining) = {
                         let state = handle.state::<State>();
-                        let mut core = match state.core.lock() {Ok(c) => c, Err(_) => break};
-                        let rolled = matches!(core.execute(Command::Rollover { dry_run: false }, Actor::Ui, Utc::now()), Ok(Response::Tasks(tasks)) if !tasks.is_empty());
+                        let mut core = state.core.lock().await;
+                        let rolled = matches!(core.execute(Command::Rollover { dry_run: false }, Actor::Ui, now), Ok(Response::Tasks(tasks)) if !tasks.is_empty());
                         let tz = core.settings().ok().and_then(|s| s.timezone.parse::<chrono_tz::Tz>().ok()).unwrap_or(chrono_tz::UTC);
-                        let tomorrow = Utc::now().with_timezone(&tz).date_naive().succ_opt().unwrap();
+                        let tomorrow = now.with_timezone(&tz).date_naive().succ_opt().unwrap();
                         // Midnight can be skipped in some zones; choose the first valid local hour.
                         let boundary = (0..24).find_map(|h| tz.from_local_datetime(&tomorrow.and_hms_opt(h,0,0).unwrap()).earliest()).unwrap().with_timezone(&Utc);
-                        (core.next_reminder().ok().flatten(), boundary, rolled)
+                        (core.next_reminder().ok().flatten(), boundary, rolled, core.today_count(now).unwrap_or(0))
                     };
-                    if rolled { update_tray(&handle); let _ = handle.emit("daybridge:changed", ()); }
+                    if rolled { update_tray(&handle, remaining); let _ = handle.emit("daybridge:changed", ()); }
                     let wake = next.as_ref().map(|(_,at)| *at).unwrap_or(midnight).min(midnight);
                     let delay = (wake - Utc::now()).to_std().unwrap_or_default();
                     tokio::select! { _ = changed.notified() => continue, _ = tokio::time::sleep(delay) => {} }
-                    let mut storage_failed = false;
-                    {
+                    let now = Utc::now();
+                    let due = {
                         let state = handle.state::<State>();
-                        if let Ok(mut core) = state.core.lock() {
-                            let now = Utc::now();
-                            if let Ok(Some((task, at))) = core.next_reminder() { if at <= now {
-                                match handle.notification().builder().title("Time for your task").body(&task.title).show() {
-                                    Ok(()) => { if let Err(e) = core.mark_reminded(&task.id, now) { storage_failed = true; let _ = handle.emit("daybridge:error", format!("Could not save reminder state: {e}")); } },
-                                    Err(e) => { eprintln!("Notification unavailable: {e}"); if core.mark_reminder_failed(&task.id, now).is_err() { storage_failed = true; } let _ = handle.emit("daybridge:error", "A reminder could not be delivered. Check OS notification permissions, then reschedule the task to retry."); }
-                                }
-                            } }
-                            let _ = core.execute(Command::Rollover {dry_run:false}, Actor::Ui, now);
-                        };
+                        let core = state.core.lock().await;
+                        match core.next_reminder() { Ok(Some((task, at))) if at <= now => Some(task), _ => None }
+                    };
+                    let mut storage_failed = false;
+                    if let Some(task) = due {
+                        // Deliver outside the lock: notification and tray work can
+                        // block on the UI thread, which must stay free to run commands.
+                        let shown = handle.notification().builder().title("Time for your task").body(&task.title).show();
+                        let mut notice = None;
+                        let state = handle.state::<State>();
+                        let mut core = state.core.lock().await;
+                        match shown {
+                            Ok(()) => if let Err(e) = core.mark_reminded(&task.id, now) { storage_failed = true; notice = Some(format!("Could not save reminder state: {e}")); },
+                            Err(e) => { eprintln!("Notification unavailable: {e}"); if core.mark_reminder_failed(&task.id, now).is_err() { storage_failed = true; } notice = Some("A reminder could not be delivered. Check OS notification permissions, then reschedule the task to retry.".to_string()); }
+                        }
+                        drop(core);
+                        if let Some(message) = notice { let _ = handle.emit("daybridge:error", message); }
                     }
-                    update_tray(&handle); let _ = handle.emit("daybridge:changed", ());
+                    let remaining = {
+                        let state = handle.state::<State>();
+                        let mut core = state.core.lock().await;
+                        let _ = core.execute(Command::Rollover {dry_run:false}, Actor::Ui, Utc::now());
+                        core.today_count(Utc::now()).unwrap_or(0)
+                    };
+                    update_tray(&handle, remaining); let _ = handle.emit("daybridge:changed", ());
                     if storage_failed { changed.notified().await; }
                 }
             });

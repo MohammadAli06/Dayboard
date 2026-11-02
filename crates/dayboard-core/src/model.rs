@@ -44,12 +44,85 @@ pub struct Task {
     pub scheduled_start: Option<DateTime<Utc>>,
     pub scheduled_end: Option<DateTime<Utc>>,
     pub parent_id: Option<String>,
+    #[serde(default)]
+    pub project_id: Option<String>,
+    #[serde(default)]
+    pub goal_id: Option<String>,
     pub tags: Vec<String>,
     pub carried_count: u32,
     pub created_at: DateTime<Utc>,
     pub completed_at: Option<DateTime<Utc>>,
     pub deleted_at: Option<DateTime<Utc>>,
     pub reminded_at: Option<DateTime<Utc>>,
+}
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ProjectKind {
+    Coding,
+    College,
+    Personal,
+}
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ProjectStatus {
+    Active,
+    Paused,
+    Archived,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct Project {
+    pub id: String,
+    pub name: String,
+    pub kind: ProjectKind,
+    pub repo_path: Option<String>,
+    pub branch: Option<String>,
+    pub status: ProjectStatus,
+    pub created_at: DateTime<Utc>,
+    pub deleted_at: Option<DateTime<Utc>>,
+}
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum GoalHorizon {
+    Medium,
+    Long,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct Goal {
+    pub id: String,
+    pub title: String,
+    pub horizon: GoalHorizon,
+    pub target_date: Option<NaiveDate>,
+    pub note: String,
+    pub created_at: DateTime<Utc>,
+    pub deleted_at: Option<DateTime<Utc>>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct GoalProgress {
+    pub goal_id: String,
+    pub total: usize,
+    pub done: usize,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct Template {
+    pub id: String,
+    pub name: String,
+    pub title: String,
+    pub notes: String,
+    pub priority: u8,
+    pub energy: Energy,
+    pub est_min: u32,
+    pub tags: Vec<String>,
+    pub project_id: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub deleted_at: Option<DateTime<Utc>>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct SavedFilter {
+    pub id: String,
+    pub name: String,
+    pub view: String,
+    pub query: String,
+    pub created_at: DateTime<Utc>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct Settings {
@@ -92,6 +165,10 @@ pub struct TaskEdit {
     pub actual_min: u32,
     pub tags: Vec<String>,
     pub parent_id: Option<String>,
+    #[serde(default)]
+    pub project_id: Option<String>,
+    #[serde(default)]
+    pub goal_id: Option<String>,
     pub due_local: Option<String>,
     pub scheduled_local: Option<String>,
     pub planned_day: Option<NaiveDate>,
@@ -136,6 +213,67 @@ pub enum Command {
         day: NaiveDate,
         energy: Option<Energy>,
     },
+    CreateProject {
+        name: String,
+        kind: ProjectKind,
+        repo_path: Option<String>,
+        branch: Option<String>,
+    },
+    UpdateProject {
+        id: String,
+        name: String,
+        kind: ProjectKind,
+        repo_path: Option<String>,
+        branch: Option<String>,
+        status: ProjectStatus,
+    },
+    DeleteProject {
+        id: String,
+    },
+    CreateGoal {
+        title: String,
+        horizon: GoalHorizon,
+        target_date: Option<NaiveDate>,
+        note: String,
+    },
+    UpdateGoal {
+        id: String,
+        title: String,
+        horizon: GoalHorizon,
+        target_date: Option<NaiveDate>,
+        note: String,
+    },
+    DeleteGoal {
+        id: String,
+    },
+    CreateTemplate {
+        name: String,
+        title: String,
+        notes: String,
+        priority: u8,
+        energy: Energy,
+        est_min: u32,
+        tags: Vec<String>,
+        project_id: Option<String>,
+    },
+    CreateTaskFromTemplate {
+        template_id: String,
+        parent_id: Option<String>,
+    },
+    DeleteTemplate {
+        id: String,
+    },
+    ImportIssue {
+        url: String,
+    },
+    SaveFilter {
+        name: String,
+        view: String,
+        query: String,
+    },
+    DeleteFilter {
+        id: String,
+    },
 }
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct Capacity {
@@ -151,6 +289,11 @@ pub struct Snapshot {
     pub today: NaiveDate,
     pub capacity: Capacity,
     pub tags: Vec<String>,
+    pub projects: Vec<Project>,
+    pub goals: Vec<Goal>,
+    pub goal_progress: Vec<GoalProgress>,
+    pub templates: Vec<Template>,
+    pub saved_filters: Vec<SavedFilter>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "type", content = "data", rename_all = "snake_case")]
@@ -161,4 +304,8 @@ pub enum Response {
     Task(Task),
     Tasks(Vec<Task>),
     Settings(Settings),
+    Project(Project),
+    Goal(Goal),
+    Template(Template),
+    Filter(SavedFilter),
 }

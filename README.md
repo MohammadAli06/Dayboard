@@ -33,6 +33,7 @@ On first use, open **Preferences → Use this device's timezone**, then save. Th
 - Inbox, Today, seven-day planner, completed/dropped tasks and global FTS5 search.
 - Quick capture with `#area`, `@context`, `!type`, `p1`–`p4`, `45m`, `1h30m`, `today`, `tomorrow`, weekdays, `next week`, ISO dates and 12/24-hour times.
 - Task editing, notes, parent/subtask links, energy, estimate/actual minutes, soft delete and immediate restore.
+- Projects with a backlog/doing/done board, repo path and branch, **Open in VS Code**, local GitHub issue URL import, task templates, goals with derived progress, and saved filters.
 - Drag-to-hour time blocking, accessible date/time fields, capacity warnings and rule-based plan suggestions.
 - Calendar rollover with carried counts, preserving original due deadlines.
 - Tray menu, single instance, global capture and event-driven native reminders.
@@ -44,7 +45,7 @@ Read a chapter #college p2 1h30m tomorrow
 Review notes !revision fri 09:30
 ```
 
-Recognized metadata tokens are removed from the title. Date-only capture means 17:00 in your configured timezone; time-only means today. Unsupported future syntax (recurrence and goal links) remains literal title text. Ambiguous/nonexistent daylight-saving times are rejected so you can choose another time.
+Recognized metadata tokens are removed from the title. Date-only capture means 17:00 in your configured timezone; time-only means today. Unsupported future syntax (recurrence and `^goal` capture) remains literal title text; link a goal from the task editor instead. Ambiguous/nonexistent daylight-saving times are rejected so you can choose another time.
 
 | Shortcut                 | Action                                                                 |
 | ------------------------ | ---------------------------------------------------------------------- |
@@ -112,7 +113,7 @@ Native installers appear under `target/release/bundle/`. A Windows x64 NSIS inst
 
 ## Roadmap and limitations
 
-Phases 3–7 remain separate work: projects/goals/templates, DSA/SRS, college prep, habits/focus/stats, recurrence, import/export/rolling backups, optional Jarvis MCP/HTTP bridge, updater and autostart. There is no active bridge or listening server in the packaged application.
+Phase 3 is implemented: projects with a board, repo/VS Code hand-off, local GitHub issue import, templates, goals and saved filters. Phases 4–7 remain separate work: DSA/SRS, college prep, habits/focus/stats, recurrence, import/export/rolling backups, optional Jarvis MCP/HTTP bridge, updater and autostart. There is no active bridge or listening server in the packaged application.
 
 Native webview suspension, fresh-machine installation on all three OSes, notification permissions, accessibility with a screen reader, and the plan's performance budgets need manual validation. Hidden UI avoids interval work, but this is not a claim that every OS suspends its webview. Task DOM rendering is bounded; snapshots currently load all task data, so very large archives need database pagination in a later performance pass. See [validation notes](docs/validation.md).
 

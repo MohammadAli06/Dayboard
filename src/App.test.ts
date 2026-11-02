@@ -37,6 +37,8 @@ const task: Task = {
   scheduled_start: null,
   scheduled_end: null,
   parent_id: null,
+  project_id: null,
+  goal_id: null,
   tags: ['#college'],
   carried_count: 0,
   created_at: '2026-11-02T00:00:00Z',
@@ -59,6 +61,11 @@ beforeEach(() => {
     today: '2026-11-02',
     capacity: { count: 1, minutes: 30, over_count: false, over_minutes: false },
     tags: ['#college'],
+    projects: [],
+    goals: [],
+    goal_progress: [],
+    templates: [],
+    saved_filters: [],
   };
   mocked.invoke.mockImplementation(
     async (_name: string, args: { command: Command }) => {
@@ -196,5 +203,67 @@ describe('desktop task flows', () => {
       ).toBe(''),
     );
     expect(screen.getByRole('alert').textContent).toContain('Saved, but');
+  });
+  it('creates a project and shows it in the Projects view', async () => {
+    const user = userEvent.setup();
+    render(App);
+    await screen.findByText('Read a chapter');
+    await user.click(screen.getByRole('button', { name: /Projects/ }));
+    mocked.invoke.mockImplementation(
+      async (_name: string, args: { command: Command }) => {
+        if (args.command.command === 'snapshot')
+          return { type: 'snapshot', data: structuredClone(snapshot) };
+        if (args.command.command === 'create_project') {
+          const project = {
+            id: '01PROJECT',
+            name: args.command.input.name,
+            kind: 'coding' as const,
+            repo_path: null,
+            branch: null,
+            status: 'active' as const,
+            created_at: '2026-11-02T00:00:00Z',
+            deleted_at: null,
+          };
+          snapshot.projects = [project];
+          return { type: 'project', data: project };
+        }
+        return { type: 'task', data: structuredClone(task) };
+      },
+    );
+    await user.type(screen.getByLabelText('Project name'), 'Daybridge');
+    await user.click(screen.getByRole('button', { name: /Add project/ }));
+    await waitFor(() =>
+      expect(screen.getAllByText('Daybridge').length).toBeGreaterThan(0),
+    );
+    expect(mocked.invoke).toHaveBeenCalledWith('dispatch', {
+      command: {
+        command: 'create_project',
+        input: {
+          name: 'Daybridge',
+          kind: 'coding',
+          repo_path: null,
+          branch: null,
+        },
+      },
+    });
+  });
+  it('imports a GitHub issue URL through the core command', async () => {
+    const user = userEvent.setup();
+    render(App);
+    await screen.findByText('Read a chapter');
+    await user.click(screen.getByRole('button', { name: /Projects/ }));
+    await user.type(
+      screen.getByLabelText('GitHub issue URL'),
+      'https://github.com/acme/app/issues/7',
+    );
+    await user.click(screen.getByRole('button', { name: /Import issue/ }));
+    await waitFor(() =>
+      expect(mocked.invoke).toHaveBeenCalledWith('dispatch', {
+        command: {
+          command: 'import_issue',
+          input: { url: 'https://github.com/acme/app/issues/7' },
+        },
+      }),
+    );
   });
 });

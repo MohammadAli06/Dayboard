@@ -100,6 +100,70 @@
         "type",
         "data"
       ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/Project"
+        },
+        "type": {
+          "type": "string",
+          "const": "project"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/Goal"
+        },
+        "type": {
+          "type": "string",
+          "const": "goal"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/Template"
+        },
+        "type": {
+          "type": "string",
+          "const": "template"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/SavedFilter"
+        },
+        "type": {
+          "type": "string",
+          "const": "filter"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ]
     }
   ],
   "$defs": {
@@ -135,6 +199,78 @@
       "enum": [
         "low",
         "high"
+      ]
+    },
+    "Goal": {
+      "type": "object",
+      "properties": {
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "deleted_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "horizon": {
+          "$ref": "#/$defs/GoalHorizon"
+        },
+        "id": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        },
+        "target_date": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "horizon",
+        "note",
+        "created_at"
+      ]
+    },
+    "GoalHorizon": {
+      "type": "string",
+      "enum": [
+        "medium",
+        "long"
+      ]
+    },
+    "GoalProgress": {
+      "type": "object",
+      "properties": {
+        "done": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "goal_id": {
+          "type": "string"
+        },
+        "total": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "goal_id",
+        "total",
+        "done"
       ]
     },
     "ParsedTask": {
@@ -186,6 +322,97 @@
         "tags"
       ]
     },
+    "Project": {
+      "type": "object",
+      "properties": {
+        "branch": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "deleted_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/ProjectKind"
+        },
+        "name": {
+          "type": "string"
+        },
+        "repo_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "$ref": "#/$defs/ProjectStatus"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "kind",
+        "status",
+        "created_at"
+      ]
+    },
+    "ProjectKind": {
+      "type": "string",
+      "enum": [
+        "coding",
+        "college",
+        "personal"
+      ]
+    },
+    "ProjectStatus": {
+      "type": "string",
+      "enum": [
+        "active",
+        "paused",
+        "archived"
+      ]
+    },
+    "SavedFilter": {
+      "type": "object",
+      "properties": {
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "query": {
+          "type": "string"
+        },
+        "view": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "view",
+        "query",
+        "created_at"
+      ]
+    },
     "Settings": {
       "type": "object",
       "properties": {
@@ -229,6 +456,30 @@
         "capacity": {
           "$ref": "#/$defs/Capacity"
         },
+        "goal_progress": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/GoalProgress"
+          }
+        },
+        "goals": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Goal"
+          }
+        },
+        "projects": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Project"
+          }
+        },
+        "saved_filters": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SavedFilter"
+          }
+        },
         "settings": {
           "$ref": "#/$defs/Settings"
         },
@@ -244,6 +495,12 @@
             "$ref": "#/$defs/Task"
           }
         },
+        "templates": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Template"
+          }
+        },
         "today": {
           "type": "string",
           "format": "date"
@@ -254,7 +511,12 @@
         "settings",
         "today",
         "capacity",
-        "tags"
+        "tags",
+        "projects",
+        "goals",
+        "goal_progress",
+        "templates",
+        "saved_filters"
       ]
     },
     "Status": {
@@ -313,6 +575,13 @@
           "format": "uint32",
           "minimum": 0
         },
+        "goal_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
         "id": {
           "type": "string"
         },
@@ -337,6 +606,13 @@
           "format": "uint8",
           "maximum": 255,
           "minimum": 0
+        },
+        "project_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
         },
         "reminded_at": {
           "type": [
@@ -383,6 +659,71 @@
         "actual_min",
         "tags",
         "carried_count",
+        "created_at"
+      ]
+    },
+    "Template": {
+      "type": "object",
+      "properties": {
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "deleted_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "energy": {
+          "$ref": "#/$defs/Energy"
+        },
+        "est_min": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "notes": {
+          "type": "string"
+        },
+        "priority": {
+          "type": "integer",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0
+        },
+        "project_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "title",
+        "notes",
+        "priority",
+        "energy",
+        "est_min",
+        "tags",
         "created_at"
       ]
     }

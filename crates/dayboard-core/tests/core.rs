@@ -397,6 +397,8 @@ fn edit_for(task: &Task) -> TaskEdit {
         actual_min: task.actual_min,
         tags: task.tags.clone(),
         parent_id: task.parent_id.clone(),
+        project_id: task.project_id.clone(),
+        goal_id: task.goal_id.clone(),
         scheduled_local: task
             .scheduled_start
             .map(|d| d.format("%Y-%m-%dT%H:%M").to_string()),
@@ -491,6 +493,7 @@ fn capacity_excludes_completed_and_deleted() {
         }
         _ => panic!(),
     }
+    assert_eq!(core.today_count(now()).unwrap(), 1);
 }
 #[test]
 fn schedule_uses_local_timezone_and_duration_tracks_estimate() {
@@ -549,4 +552,235 @@ fn rollover_observes_timezone_calendar_day() {
         "2026-11-03"
     );
     assert_eq!(core.tasks().unwrap()[0].carried_count, 1);
+}
+#[test]
+fn projects_goals_templates_and_filters_round_trip() {
+    let mut core = Core::memory().unwrap();
+    let project = match core
+        .execute(
+            Command::CreateProject {
+                name: "Daybridge".into(),
+                kind: ProjectKind::Coding,
+                repo_path: Some("C:/src/daybridge".into()),
+                branch: Some("main".into()),
+            },
+            Actor::User,
+            now(),
+        )
+        .unwrap()
+    {
+        Response::Project(p) => p,
+        _ => panic!(),
+    };
+    let goal = match core
+        .execute(
+            Command::CreateGoal {
+                title: "Ship phase 3".into(),
+                horizon: GoalHorizon::Medium,
+                target_date: Some("2026-11-20".parse().unwrap()),
+                note: "Keep it local".into(),
+            },
+            Actor::User,
+            now(),
+        )
+        .unwrap()
+    {
+        Response::Goal(g) => g,
+        _ => panic!(),
+    };
+    let template = match core
+        .execute(
+            Command::CreateTemplate {
+                name: "Bug fix".into(),
+                title: "Fix bug".into(),
+                notes: "Reproduce, fix, test".into(),
+                priority: 2,
+                energy: Energy::Low,
+                est_min: 30,
+                tags: vec!["!bug".into()],
+                project_id: Some(project.id.clone()),
+            },
+            Actor::User,
+            now(),
+        )
+        .unwrap()
+    {
+        Response::Template(t) => t,
+        _ => panic!(),
+    };
+    let filter = match core
+        .execute(
+            Command::SaveFilter {
+                name: "Graph search".into(),
+                view: "Inbox".into(),
+                query: "graph".into(),
+            },
+            Actor::User,
+            now(),
+        )
+        .unwrap()
+    {
+        Response::Filter(f) => f,
+        _ => panic!(),
+    };
+    let task = create(&mut core, "Linked task");
+    let mut edit = edit_for(&task);
+    edit.project_id = Some(project.id.clone());
+    edit.goal_id = Some(goal.id.clone());
+    core.execute(Command::UpdateTask(edit), Actor::User, now())
+        .unwrap();
+    let from_template = match core
+        .execute(
+            Command::CreateTaskFromTemplate {
+                template_id: template.id.clone(),
+                parent_id: None,
+            },
+            Actor::User,
+            now(),
+        )
+        .unwrap()
+    {
+        Response::Task(t) => t,
+        _ => panic!(),
+    };
+    assert_eq!(
+        from_template.project_id.as_deref(),
+        Some(project.id.as_str())
+    );
+    match core
+        .execute(Command::Snapshot { search: None }, Actor::User, now())
+        .unwrap()
+    {
+        Response::Snapshot(s) => {
+            assert_eq!(s.projects.len(), 1);
+            assert_eq!(s.goals.len(), 1);
+            assert_eq!(s.templates.len(), 1);
+            assert_eq!(s.saved_filters.len(), 1);
+            assert_eq!(s.saved_filters[0].id, filter.id);
+            let progress = s
+                .goal_progress
+                .iter()
+                .find(|p| p.goal_id == goal.id)
+                .unwrap();
+            assert_eq!((progress.total, progress.done), (1, 0));
+        }
+        _ => panic!(),
+    }
+    core.execute(
+        Command::DeleteProject { id: project.id },
+        Actor::User,
+        now(),
+    )
+    .unwrap();
+    core.execute(Command::DeleteGoal { id: goal.id }, Actor::User, now())
+        .unwrap();
+    core.execute(
+        Command::DeleteTemplate {
+            id: template.id.clone(),
+        },
+        Actor::User,
+        now(),
+    )
+    .unwrap();
+    core.execute(Command::DeleteFilter { id: filter.id }, Actor::User, now())
+        .unwrap();
+    match core
+        .execute(Command::Snapshot { search: None }, Actor::User, now())
+        .unwrap()
+    {
+        Response::Snapshot(s) => {
+            assert!(s.projects.is_empty());
+            assert!(s.goals.is_empty());
+            assert!(s.templates.is_empty());
+            assert!(s.saved_filters.is_empty());
+            assert!(s.tasks.iter().all(|t| t.deleted_at.is_none()));
+        }
+        _ => panic!(),
+    }
+    assert!(core
+        .execute(
+            Command::CreateTaskFromTemplate {
+                template_id: template.id,
+                parent_id: None,
+            },
+            Actor::User,
+            now(),
+        )
+        .is_err());
+}
+#[test]
+fn github_issue_urls_create_tasks_and_reject_junk() {
+    let mut core = Core::memory().unwrap();
+    let project = match core
+        .execute(
+            Command::CreateProject {
+                name: "Bridge".into(),
+                kind: ProjectKind::Coding,
+                repo_path: Some("C:/src/bridge".into()),
+                branch: None,
+            },
+            Actor::User,
+            now(),
+        )
+        .unwrap()
+    {
+        Response::Project(p) => p,
+        _ => panic!(),
+    };
+    for url in [
+        "https://github.com/acme/bridge/issues/42",
+        "github.com/acme/bridge/issues/7?foo=1",
+    ] {
+        match core
+            .execute(Command::ImportIssue { url: url.into() }, Actor::User, now())
+            .unwrap()
+        {
+            Response::Task(t) => {
+                assert_eq!(t.project_id.as_deref(), Some(project.id.as_str()));
+                assert!(t.notes.contains(url));
+            }
+            _ => panic!(),
+        }
+    }
+    for url in [
+        "",
+        "https://example.com/x",
+        "https://github.com/acme/bridge/pull/1",
+    ] {
+        assert!(core
+            .execute(Command::ImportIssue { url: url.into() }, Actor::User, now())
+            .is_err());
+    }
+}
+#[test]
+fn existing_database_gains_phase_three_tables() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("legacy.db");
+    {
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        conn.execute_batch(include_str!("../src/schema.sql"))
+            .unwrap();
+        conn.execute_batch(
+            r#"INSERT INTO tasks(id,data,status,planned_day,due_at,created_at,deleted) VALUES('01LEGACY','{"id":"01LEGACY","title":"Old task","notes":"","status":"todo","priority":3,"energy":"low","est_min":25,"actual_min":0,"due_at":null,"planned_day":null,"scheduled_start":null,"scheduled_end":null,"parent_id":null,"tags":[],"carried_count":0,"created_at":"2026-11-01T10:00:00Z","completed_at":null,"deleted_at":null,"reminded_at":null}','"todo"',NULL,NULL,'2026-11-01T10:00:00Z',0);
+             PRAGMA user_version=1;"#,
+        )
+        .unwrap();
+    }
+    let mut core = Core::open(&path).unwrap();
+    let tasks = core.tasks().unwrap();
+    assert_eq!(tasks.len(), 1);
+    assert!(tasks[0].project_id.is_none());
+    assert!(core.projects().unwrap().is_empty());
+    assert!(core
+        .execute(
+            Command::CreateProject {
+                name: "Migrated".into(),
+                kind: ProjectKind::Personal,
+                repo_path: None,
+                branch: None,
+            },
+            Actor::User,
+            now(),
+        )
+        .is_ok());
 }

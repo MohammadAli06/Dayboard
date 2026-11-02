@@ -5,11 +5,18 @@
   import {
     dispatch,
     native,
+    openInVscode,
     type Snapshot,
     type Task,
     type TaskEdit,
     type Settings,
     type Command,
+    type Goal,
+    type GoalHorizon,
+    type Project,
+    type ProjectKind,
+    type SavedFilter,
+    type Status,
   } from './lib/api';
   import { localInput, addDays } from './lib/dates';
   const capture = new URLSearchParams(location.search).has('capture');
@@ -18,6 +25,7 @@
   let text = $state('');
   let search = $state('');
   let error = $state('');
+  let notice = $state('');
   let busy = $state(false);
   let selected = $state(0);
   let palette = $state(false);
@@ -30,7 +38,29 @@
   let day = $state('');
   let quickInput = $state<HTMLInputElement>();
   let searchInput = $state<HTMLInputElement>();
-  const views = ['Today', 'Inbox', 'Planner', 'Completed'];
+  let projectId = $state<string | null>(null);
+  let projectEditId = $state<string | null>(null);
+  let goalEditId = $state<string | null>(null);
+  let issueUrl = $state('');
+  let filterName = $state('');
+  let projectDraft = $state({
+    name: '',
+    kind: 'coding' as ProjectKind,
+    repo_path: '',
+    branch: '',
+  });
+  let goalDraft = $state({
+    title: '',
+    horizon: 'medium' as GoalHorizon,
+    target_date: '',
+    note: '',
+  });
+  const views = ['Today', 'Inbox', 'Planner', 'Projects', 'Completed'];
+  const boardColumns: { label: string; statuses: Status[] }[] = [
+    { label: 'Backlog', statuses: ['inbox', 'todo'] },
+    { label: 'Doing', statuses: ['doing'] },
+    { label: 'Done', statuses: ['done'] },
+  ];
   let tasks = $derived(
     (snapshot?.tasks ?? [])
       .filter((t) => {
@@ -48,6 +78,14 @@
   );
   let visibleTasks = $derived(
     tasks.slice(Math.max(0, selected - 40), Math.max(80, selected + 40)),
+  );
+  let selectedProject = $derived(
+    snapshot?.projects.find((project) => project.id === projectId) ?? null,
+  );
+  let projectTasks = $derived(
+    projectId
+      ? (snapshot?.tasks ?? []).filter((task) => task.project_id === projectId)
+      : [],
   );
   let days = $derived(
     snapshot
@@ -115,6 +153,8 @@
       actual_min: task.actual_min,
       tags: [...task.tags],
       parent_id: task.parent_id,
+      project_id: task.project_id,
+      goal_id: task.goal_id,
       planned_day: task.planned_day,
       due_local: localInput(task.due_at, snapshot!.settings.timezone) || null,
       scheduled_local:
@@ -133,6 +173,8 @@
         planned_day: edit.planned_day || null,
         due_local: edit.due_local || null,
         parent_id: edit.parent_id || null,
+        project_id: edit.project_id || null,
+        goal_id: edit.goal_id || null,
         scheduled_local: editStart || null,
       },
     });
@@ -170,6 +212,181 @@
       command: 'reschedule_task',
       input: { id, local_start, day: target, dry_run: false },
     });
+  }
+  function progressFor(goalId: string) {
+    return (
+      snapshot?.goal_progress.find((progress) => progress.goal_id === goalId) ?? {
+        done: 0,
+        total: 0,
+      }
+    );
+  }
+  function editProject(project: Project) {
+    projectEditId = project.id;
+    projectDraft = {
+      name: project.name,
+      kind: project.kind,
+      repo_path: project.repo_path ?? '',
+      branch: project.branch ?? '',
+    };
+  }
+  function cancelProjectEdit() {
+    projectEditId = null;
+    projectDraft = { name: '', kind: 'coding', repo_path: '', branch: '' };
+  }
+  async function saveProject() {
+    if (!projectDraft.name.trim()) return;
+    if (projectEditId) {
+      const before = snapshot?.projects.find(
+        (project) => project.id === projectEditId,
+      );
+      if (!before) return;
+      const result = await run({
+        command: 'update_project',
+        input: {
+          id: before.id,
+          name: projectDraft.name,
+          kind: projectDraft.kind,
+          repo_path: projectDraft.repo_path.trim() || null,
+          branch: projectDraft.branch.trim() || null,
+          status: before.status,
+        },
+      });
+      if (result?.type === 'project') {
+        projectId = result.data.id;
+        cancelProjectEdit();
+      }
+      return;
+    }
+    const result = await run({
+      command: 'create_project',
+      input: {
+        name: projectDraft.name,
+        kind: projectDraft.kind,
+        repo_path: projectDraft.repo_path.trim() || null,
+        branch: projectDraft.branch.trim() || null,
+      },
+    });
+    if (result?.type === 'project') {
+      projectId = result.data.id;
+      cancelProjectEdit();
+    }
+  }
+  async function removeProject(id: string) {
+    const result = await run({ command: 'delete_project', input: { id } });
+    if (result) {
+      projectId = null;
+      if (projectEditId === id) cancelProjectEdit();
+    }
+  }
+  function editGoal(goal: Goal) {
+    goalEditId = goal.id;
+    goalDraft = {
+      title: goal.title,
+      horizon: goal.horizon,
+      target_date: goal.target_date ?? '',
+      note: goal.note,
+    };
+  }
+  function cancelGoalEdit() {
+    goalEditId = null;
+    goalDraft = { title: '', horizon: 'medium', target_date: '', note: '' };
+  }
+  async function saveGoal() {
+    if (!goalDraft.title.trim()) return;
+    if (goalEditId) {
+      const result = await run({
+        command: 'update_goal',
+        input: {
+          id: goalEditId,
+          title: goalDraft.title,
+          horizon: goalDraft.horizon,
+          target_date: goalDraft.target_date || null,
+          note: goalDraft.note,
+        },
+      });
+      if (result) cancelGoalEdit();
+      return;
+    }
+    const result = await run({
+      command: 'create_goal',
+      input: {
+        title: goalDraft.title,
+        horizon: goalDraft.horizon,
+        target_date: goalDraft.target_date || null,
+        note: goalDraft.note,
+      },
+    });
+    if (result) cancelGoalEdit();
+  }
+  async function removeGoal(id: string) {
+    const result = await run({ command: 'delete_goal', input: { id } });
+    if (result && goalEditId === id) cancelGoalEdit();
+  }
+  async function useTemplate(id: string) {
+    const result = await run({
+      command: 'create_task_from_template',
+      input: { template_id: id, parent_id: null },
+    });
+    if (result) navigate('Inbox');
+  }
+  async function removeTemplate(id: string) {
+    await run({ command: 'delete_template', input: { id } });
+  }
+  async function importIssue() {
+    if (!issueUrl.trim()) return;
+    const result = await run({
+      command: 'import_issue',
+      input: { url: issueUrl },
+    });
+    if (result) {
+      issueUrl = '';
+      navigate('Inbox');
+    }
+  }
+  async function saveFilter() {
+    if (!filterName.trim()) return;
+    const result = await run({
+      command: 'save_filter',
+      input: { name: filterName, view, query: search },
+    });
+    if (result) filterName = '';
+  }
+  async function applyFilter(filter: SavedFilter) {
+    view = filter.view;
+    search = filter.query;
+    selected = 0;
+    palette = false;
+    suggestions = null;
+    await refresh().catch((e) => (error = String(e)));
+  }
+  async function removeFilter(id: string) {
+    await run({ command: 'delete_filter', input: { id } });
+  }
+  async function openProject(path: string | null) {
+    if (!path) return;
+    try {
+      await openInVscode(path);
+    } catch (e) {
+      error = String(e);
+    }
+  }
+  async function saveAsTemplate() {
+    if (!edit) return;
+    const result = await run({
+      command: 'create_template',
+      input: {
+        name: edit.title,
+        title: edit.title,
+        notes: edit.notes,
+        priority: edit.priority,
+        energy: edit.energy,
+        est_min: edit.est_min,
+        tags: editTags.split(/\s+/).filter(Boolean),
+        project_id: edit.project_id || null,
+      },
+    });
+    if (result) notice = 'Template saved. Find it in Projects → Templates.';
   }
   function keyboard(event: KeyboardEvent) {
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
@@ -358,7 +575,7 @@
         {#each views as item, index (item)}<button
             class:active={view === item}
             onclick={() => navigate(item)}
-            ><span class="nav-icon">{['☀', '▣', '▦', '✓'][index]}</span
+            ><span class="nav-icon">{['☀', '▣', '▦', '◧', '✓'][index]}</span
             >{item}{#if item === 'Inbox'}<span class="count"
                 >{snapshot?.tasks.filter(
                   (t) =>
@@ -413,7 +630,9 @@
                   ? 'Out of your head. Into here.'
                   : view === 'Planner'
                     ? 'Give your day some shape.'
-                    : 'Look at what you’ve done.'}
+                    : view === 'Projects'
+                      ? 'Build something over time.'
+                      : 'Look at what you’ve done.'}
             </h1>
             <p>
               {view === 'Today'
@@ -422,12 +641,18 @@
                   ? 'Capture now. Find a place for it when you’re ready.'
                   : view === 'Planner'
                     ? 'Drag a task to a time slot, or schedule it from the task menu.'
-                    : 'Small steps add up. Reopen a task whenever you need to.'}
+                    : view === 'Projects'
+                      ? 'Projects, goal progress, templates and saved filters.'
+                      : 'Small steps add up. Reopen a task whenever you need to.'}
             </p>
           </div>
           <div class="day-number">
             {snapshot?.today.slice(-2) ?? '—'}<span
-              >{view === 'Planner' ? 'PLAN AHEAD' : 'ONE DAY AT A TIME'}</span
+              >{view === 'Planner'
+                ? 'PLAN AHEAD'
+                : view === 'Projects'
+                  ? 'THE LONG VIEW'
+                  : 'ONE DAY AT A TIME'}</span
             >
           </div>
         </section>
@@ -435,6 +660,12 @@
             {error}<button
               onclick={() => (error = '')}
               aria-label="Dismiss error">×</button
+            >
+          </div>{/if}
+        {#if notice}<div class="notice" role="status">
+            {notice}<button
+              onclick={() => (notice = '')}
+              aria-label="Dismiss notice">×</button
             >
           </div>{/if}
         {#if deleted}<div class="notice" role="status">
@@ -516,7 +747,280 @@
                 ></button
               >{/each}
           </div>{/if}
-        <div class:planner-layout={view === 'Planner'}>
+        {#if view === 'Projects'}
+          <section
+            class="projects-view"
+            aria-label="Projects, goals, templates and filters"
+          >
+            <div class="panel">
+              <div class="section-title">
+                <h2>
+                  Projects <span>{snapshot?.projects.length ?? 0}</span>
+                </h2>
+              </div>
+              <form
+                class="project-form"
+                onsubmit={(event) => {
+                  event.preventDefault();
+                  void saveProject();
+                }}
+              >
+                <input
+                  bind:value={projectDraft.name}
+                  aria-label="Project name"
+                  placeholder="New project"
+                />
+                <select bind:value={projectDraft.kind} aria-label="Project kind">
+                  <option value="coding">Coding</option>
+                  <option value="college">College</option>
+                  <option value="personal">Personal</option>
+                </select>
+                <input
+                  bind:value={projectDraft.repo_path}
+                  aria-label="Repository path"
+                  placeholder="Repo path (optional)"
+                />
+                <input
+                  bind:value={projectDraft.branch}
+                  aria-label="Branch"
+                  placeholder="Branch"
+                />
+                <button
+                  class="primary"
+                  type="submit"
+                  disabled={busy || !native || !projectDraft.name.trim()}
+                  >{projectEditId ? 'Save project' : 'Add project'}</button
+                >{#if projectEditId}<button
+                    class="subtle"
+                    type="button"
+                    onclick={cancelProjectEdit}>Cancel</button
+                  >{/if}
+              </form>
+              <div class="project-grid">
+                {#each snapshot?.projects ?? [] as project (project.id)}
+                  <button
+                    class="project-card"
+                    class:chosen={projectId === project.id}
+                    onclick={() => (projectId = project.id)}
+                  >
+                    <strong>{project.name}</strong>
+                    <span>{project.kind} · {project.status}</span>
+                    {#if project.repo_path}<small
+                        >{project.repo_path}{project.branch
+                          ? ` · ${project.branch}`
+                          : ''}</small
+                      >{/if}
+                  </button>
+                {/each}
+              </div>
+            </div>
+            {#if selectedProject}
+              <div class="board-toolbar">
+                <h2>{selectedProject.name}</h2>
+                <div>
+                  {#if selectedProject.repo_path}<button
+                      class="subtle"
+                      disabled={busy}
+                      onclick={() => openProject(selectedProject!.repo_path)}
+                      >Open in VS Code</button
+                    >{/if}<button
+                    class="subtle"
+                    disabled={busy}
+                    onclick={() => editProject(selectedProject!)}
+                    >Edit</button
+                  ><button
+                    class="danger"
+                    disabled={busy}
+                    onclick={() => removeProject(selectedProject!.id)}
+                    >Delete project</button
+                  >
+                </div>
+              </div>
+              <div class="board">
+                {#each boardColumns as column (column.label)}
+                  <div class="board-column">
+                    <h4>{column.label}</h4>
+                    {#each projectTasks.filter((task) =>
+                      column.statuses.includes(task.status),
+                    ) as task (task.id)}
+                      <button class="board-task" onclick={() => openEdit(task)}
+                        >{task.title}<small>{task.est_min}m</small></button
+                      >
+                    {/each}
+                  </div>
+                {/each}
+              </div>
+            {/if}
+            <div class="panel">
+              <div class="section-title"><h2>Import a GitHub issue</h2></div>
+              <form
+                onsubmit={(event) => {
+                  event.preventDefault();
+                  void importIssue();
+                }}
+              >
+                <input
+                  bind:value={issueUrl}
+                  aria-label="GitHub issue URL"
+                  placeholder="https://github.com/owner/repo/issues/12"
+                />
+                <button
+                  type="submit"
+                  disabled={busy || !native || !issueUrl.trim()}
+                  >Import issue</button
+                >
+              </form>
+              <p class="muted">
+                Parsed locally; no network request. A matching repo path links
+                the task to its project.
+              </p>
+            </div>
+            <div class="panel">
+              <div class="section-title">
+                <h2>Goals <span>{snapshot?.goals.length ?? 0}</span></h2>
+              </div>
+              <form
+                onsubmit={(event) => {
+                  event.preventDefault();
+                  void saveGoal();
+                }}
+              >
+                <input
+                  bind:value={goalDraft.title}
+                  aria-label="Goal title"
+                  placeholder="New goal"
+                />
+                <select bind:value={goalDraft.horizon} aria-label="Goal horizon">
+                  <option value="medium">Medium term</option>
+                  <option value="long">Long term</option>
+                </select>
+                <input
+                  type="date"
+                  bind:value={goalDraft.target_date}
+                  aria-label="Goal target date"
+                />
+                <button
+                  type="submit"
+                  disabled={busy || !native || !goalDraft.title.trim()}
+                  >{goalEditId ? 'Save goal' : 'Add goal'}</button
+                >{#if goalEditId}<button
+                    class="subtle"
+                    type="button"
+                    onclick={cancelGoalEdit}>Cancel</button
+                  >{/if}
+              </form>
+              {#each snapshot?.goals ?? [] as goal (goal.id)}
+                {@const progress = progressFor(goal.id)}
+                <div class="goal-row">
+                  <div>
+                    <strong>{goal.title}</strong>
+                    <span
+                      >{goal.horizon}{goal.target_date
+                        ? ` · ${goal.target_date}`
+                        : ''}</span
+                    >
+                  </div>
+                  <progress
+                    value={progress.done}
+                    max={progress.total || 1}
+                  ></progress>
+                  <span>{progress.done}/{progress.total}</span>
+                  <button
+                    class="subtle"
+                    disabled={busy}
+                    onclick={() => editGoal(goal)}
+                    aria-label={`Edit goal ${goal.title}`}>Edit</button
+                  ><button
+                    class="danger"
+                    disabled={busy}
+                    onclick={() => removeGoal(goal.id)}
+                    aria-label={`Delete goal ${goal.title}`}>×</button
+                  >
+                </div>
+              {/each}
+            </div>
+            <div class="panel">
+              <div class="section-title">
+                <h2>
+                  Templates <span>{snapshot?.templates.length ?? 0}</span>
+                </h2>
+              </div>
+              {#if !snapshot?.templates.length}<p class="muted">
+                  Open a task and choose “Save as template”.
+                </p>{/if}
+              {#each snapshot?.templates ?? [] as template (template.id)}
+                <div class="goal-row">
+                  <div>
+                    <strong>{template.name}</strong>
+                    <span>{template.title} · {template.est_min}m</span>
+                  </div>
+                  <button
+                    disabled={busy}
+                    onclick={() => useTemplate(template.id)}
+                    >Create task</button
+                  ><button
+                    class="danger"
+                    disabled={busy}
+                    onclick={() => removeTemplate(template.id)}
+                    aria-label={`Delete template ${template.name}`}>×</button
+                  >
+                </div>
+              {/each}
+            </div>
+            <div class="panel">
+              <div class="section-title">
+                <h2>
+                  Saved filters <span
+                    >{snapshot?.saved_filters.length ?? 0}</span
+                  >
+                </h2>
+              </div>
+              <form
+                onsubmit={(event) => {
+                  event.preventDefault();
+                  void saveFilter();
+                }}
+              >
+                <input
+                  bind:value={filterName}
+                  aria-label="Filter name"
+                  placeholder="Name this view and search"
+                />
+                <button
+                  type="submit"
+                  disabled={busy || !native || !filterName.trim()}
+                  >Save current filter</button
+                >
+              </form>
+              <p class="muted">
+                Saves <strong>{view}</strong>{search
+                  ? ` with search “${search}”`
+                  : ' with no search'}.
+              </p>
+              {#each snapshot?.saved_filters ?? [] as filter (filter.id)}
+                <div class="goal-row">
+                  <div>
+                    <strong>{filter.name}</strong>
+                    <span
+                      >{filter.view}{filter.query
+                        ? ` · ${filter.query}`
+                        : ''}</span
+                    >
+                  </div>
+                  <button disabled={busy} onclick={() => applyFilter(filter)}
+                    >Apply</button
+                  ><button
+                    class="danger"
+                    disabled={busy}
+                    onclick={() => removeFilter(filter.id)}
+                    aria-label={`Delete filter ${filter.name}`}>×</button
+                  >
+                </div>
+              {/each}
+            </div>
+          </section>
+        {:else}
+          <div class:planner-layout={view === 'Planner'}>
           <section class="task-section">
             <div class="section-title">
               <h2>
@@ -672,6 +1176,7 @@
                 </div>{/each}
             </section>{/if}
         </div>
+        {/if}
         <footer class="page-footer">
           <span
             ><kbd>N</kbd> new task <kbd>J</kbd><kbd>K</kbd> navigate
@@ -795,6 +1300,20 @@
                   value={parent.id}>{parent.title}</option
                 >{/each}</select
             ></label
+          ><label
+            >Project<select bind:value={edit.project_id}
+              ><option value="">No project</option
+              >{#each snapshot?.projects ?? [] as project (project.id)}<option
+                  value={project.id}>{project.name}</option
+                >{/each}</select
+            ></label
+          ><label
+            >Goal<select bind:value={edit.goal_id}
+              ><option value="">No goal</option
+              >{#each snapshot?.goals ?? [] as goal (goal.id)}<option
+                  value={goal.id}>{goal.title}</option
+                >{/each}</select
+            ></label
           >
         </div>
         <label
@@ -816,8 +1335,14 @@
           >
         </div>
         {#if error}<p class="error" role="alert">{error}</p>{/if}
+        {#if notice}<p class="muted" role="status">{notice}</p>{/if}
         <div class="dialog-actions">
           <button
+            class="subtle"
+            type="button"
+            disabled={busy}
+            onclick={() => void saveAsTemplate()}>Save as template</button
+          ><button
             class="danger"
             type="button"
             disabled={busy}

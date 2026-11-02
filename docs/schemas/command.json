@@ -303,6 +303,420 @@
         "command",
         "input"
       ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string",
+          "const": "create_project"
+        },
+        "input": {
+          "type": "object",
+          "properties": {
+            "branch": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kind": {
+              "$ref": "#/$defs/ProjectKind"
+            },
+            "name": {
+              "type": "string"
+            },
+            "repo_path": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "name",
+            "kind"
+          ]
+        }
+      },
+      "required": [
+        "command",
+        "input"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string",
+          "const": "update_project"
+        },
+        "input": {
+          "type": "object",
+          "properties": {
+            "branch": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "$ref": "#/$defs/ProjectKind"
+            },
+            "name": {
+              "type": "string"
+            },
+            "repo_path": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "status": {
+              "$ref": "#/$defs/ProjectStatus"
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "kind",
+            "status"
+          ]
+        }
+      },
+      "required": [
+        "command",
+        "input"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string",
+          "const": "delete_project"
+        },
+        "input": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ]
+        }
+      },
+      "required": [
+        "command",
+        "input"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string",
+          "const": "create_goal"
+        },
+        "input": {
+          "type": "object",
+          "properties": {
+            "horizon": {
+              "$ref": "#/$defs/GoalHorizon"
+            },
+            "note": {
+              "type": "string"
+            },
+            "target_date": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "date"
+            },
+            "title": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "title",
+            "horizon",
+            "note"
+          ]
+        }
+      },
+      "required": [
+        "command",
+        "input"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string",
+          "const": "update_goal"
+        },
+        "input": {
+          "type": "object",
+          "properties": {
+            "horizon": {
+              "$ref": "#/$defs/GoalHorizon"
+            },
+            "id": {
+              "type": "string"
+            },
+            "note": {
+              "type": "string"
+            },
+            "target_date": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "date"
+            },
+            "title": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "title",
+            "horizon",
+            "note"
+          ]
+        }
+      },
+      "required": [
+        "command",
+        "input"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string",
+          "const": "delete_goal"
+        },
+        "input": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ]
+        }
+      },
+      "required": [
+        "command",
+        "input"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string",
+          "const": "create_template"
+        },
+        "input": {
+          "type": "object",
+          "properties": {
+            "energy": {
+              "$ref": "#/$defs/Energy"
+            },
+            "est_min": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
+            "name": {
+              "type": "string"
+            },
+            "notes": {
+              "type": "string"
+            },
+            "priority": {
+              "type": "integer",
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0
+            },
+            "project_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "tags": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "title": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "title",
+            "notes",
+            "priority",
+            "energy",
+            "est_min",
+            "tags"
+          ]
+        }
+      },
+      "required": [
+        "command",
+        "input"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string",
+          "const": "create_task_from_template"
+        },
+        "input": {
+          "type": "object",
+          "properties": {
+            "parent_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "template_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "template_id"
+          ]
+        }
+      },
+      "required": [
+        "command",
+        "input"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string",
+          "const": "delete_template"
+        },
+        "input": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ]
+        }
+      },
+      "required": [
+        "command",
+        "input"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string",
+          "const": "import_issue"
+        },
+        "input": {
+          "type": "object",
+          "properties": {
+            "url": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "url"
+          ]
+        }
+      },
+      "required": [
+        "command",
+        "input"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string",
+          "const": "save_filter"
+        },
+        "input": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "query": {
+              "type": "string"
+            },
+            "view": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "view",
+            "query"
+          ]
+        }
+      },
+      "required": [
+        "command",
+        "input"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string",
+          "const": "delete_filter"
+        },
+        "input": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ]
+        }
+      },
+      "required": [
+        "command",
+        "input"
+      ]
     }
   ],
   "$defs": {
@@ -311,6 +725,29 @@
       "enum": [
         "low",
         "high"
+      ]
+    },
+    "GoalHorizon": {
+      "type": "string",
+      "enum": [
+        "medium",
+        "long"
+      ]
+    },
+    "ProjectKind": {
+      "type": "string",
+      "enum": [
+        "coding",
+        "college",
+        "personal"
+      ]
+    },
+    "ProjectStatus": {
+      "type": "string",
+      "enum": [
+        "active",
+        "paused",
+        "archived"
       ]
     },
     "Settings": {
@@ -382,6 +819,13 @@
           "format": "uint32",
           "minimum": 0
         },
+        "goal_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
         "id": {
           "type": "string"
         },
@@ -406,6 +850,13 @@
           "format": "uint8",
           "maximum": 255,
           "minimum": 0
+        },
+        "project_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
         },
         "scheduled_local": {
           "type": [

@@ -22,6 +22,10 @@ Interactive native verification could not run: both computer-use interfaces repo
 
 A Windows x64 NSIS release installer was built successfully with `npm run tauri build -- --bundles nsis` at `target/release/bundle/nsis/Daybridge_0.1.0_x64-setup.exe` (about 2.08 MiB). This verifies packaging and the installer-size target for this build; the installer has not been installed on a clean VM. It is unsigned.
 
+### Interactive validation (2026-11-02)
+
+Native UI Automation drove the debug app against an isolated data directory containing a pre-existing Phase 0–2 database. The app migrated it in place (`user_version` 1 → 2) without losing tasks. The run created a project, a goal, an imported GitHub issue, a template and a saved filter; linked a task to the project and goal; created another task from the template; and rendered the board, goal progress and template rows. The process reported `Responding = true` after every step. A separate stress run added five past-due tasks in a row to exercise the reminder/tray path after the IPC concurrency fix; the app stayed responsive and persisted all of them. The test process and dev server were stopped afterwards; the repository and type checks listed above were re-run after Phase 3.
+
 ## Dependency audit
 
 `npm audit --omit=dev`: zero findings. The complete development dependency graph reports 14 findings (2 low, 12 moderate) propagated from `deepmerge` and `minimatch` in tooling. Critical findings in the initial test-runner dependency were removed by upgrading Vitest. No unsupported major transitive override was forced just to silence the audit. Review upstream fixes through Dependabot before exposing development servers or processing untrusted build inputs.
