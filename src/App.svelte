@@ -4,6 +4,8 @@
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import {
     dispatch,
+    exportData,
+    importData,
     native,
     openInVscode,
     type Snapshot,
@@ -13,8 +15,11 @@
     type Command,
     type DsaDifficulty,
     type DsaProblem,
+    type FocusKind,
+    type FocusSession,
     type Goal,
     type GoalHorizon,
+    type Habit,
     type Project,
     type ProjectKind,
     type SavedFilter,
@@ -70,7 +75,26 @@
   let selectedSubjectId = $state<string | null>(null);
   let syllabusDraft = $state('');
   let deadlineDraft = $state({ title: '', due_date: '', study_min: 60 });
-  const views = ['Today', 'Inbox', 'Planner', 'Projects', 'Study', 'Completed'];
+  let focusDraft = $state({
+    task_id: '',
+    planned_min: 25,
+    kind: 'focus' as FocusKind,
+  });
+  let focusElapsedMinutes = $state(0);
+  let habitDraft = $state({ name: '', cadence_days: 1 });
+  let reviewNote = $state('');
+  let reviewSynced = $state(false);
+  let importPath = $state('');
+  let dataNotice = $state('');
+  const views = [
+    'Today',
+    'Inbox',
+    'Planner',
+    'Projects',
+    'Study',
+    'Insights',
+    'Completed',
+  ];
   const boardColumns: { label: string; statuses: Status[] }[] = [
     { label: 'Backlog', statuses: ['inbox', 'todo'] },
     { label: 'Doing', statuses: ['doing'] },
@@ -118,6 +142,14 @@
       (deadline) => deadline.subject_id === selectedSubjectId,
     ),
   );
+  let activeFocus = $derived(snapshot?.active_focus ?? null);
+  let habits = $derived(snapshot?.habits ?? []);
+  let habitStreaks = $derived(snapshot?.habit_streaks ?? []);
+  let todayReview = $derived(
+    snapshot?.daily_reviews.find((review) => review.day === snapshot?.today) ??
+      null,
+  );
+  let weeklyStats = $derived(snapshot?.weekly_stats ?? null);
   let days = $derived(
     snapshot
       ? Array.from({ length: 7 }, (_, i) => addDays(snapshot!.today, i))
@@ -186,6 +218,7 @@
       parent_id: task.parent_id,
       project_id: task.project_id,
       goal_id: task.goal_id,
+      recurrence_rule: task.recurrence_rule,
       planned_day: task.planned_day,
       due_local: localInput(task.due_at, snapshot!.settings.timezone) || null,
       scheduled_local:
@@ -206,6 +239,7 @@
         parent_id: edit.parent_id || null,
         project_id: edit.project_id || null,
         goal_id: edit.goal_id || null,
+        recurrence_rule: edit.recurrence_rule || null,
         scheduled_local: editStart || null,
       },
     });
@@ -492,6 +526,82 @@
   async function removeDeadline(id: string) {
     await run({ command: 'delete_deadline', input: { id } });
   }
+  function focusTaskLabel(session: FocusSession) {
+    return (
+      snapshot?.tasks.find((task) => task.id === session.task_id)?.title ??
+      'No task'
+    );
+  }
+  function streakFor(habitId: string) {
+    return (
+      habitStreaks.find((streak) => streak.habit_id === habitId) ?? {
+        current: 0,
+        best: 0,
+        last_done: null,
+        due: false,
+      }
+    );
+  }
+  async function startFocus() {
+    const result = await run({
+      command: 'start_focus',
+      input: {
+        task_id: focusDraft.task_id || null,
+        planned_min: Number(focusDraft.planned_min) || 25,
+        kind: focusDraft.kind,
+      },
+    });
+    if (result) focusDraft = { ...focusDraft, task_id: '' };
+  }
+  async function stopFocus(id: string) {
+    await run({ command: 'stop_focus', input: { id } });
+  }
+  async function addHabit() {
+    if (!habitDraft.name.trim()) return;
+    const result = await run({
+      command: 'create_habit',
+      input: {
+        name: habitDraft.name,
+        cadence_days: Number(habitDraft.cadence_days) || 1,
+      },
+    });
+    if (result) habitDraft = { name: '', cadence_days: 1 };
+  }
+  async function logHabit(habit: Habit) {
+    await run({ command: 'log_habit', input: { habit_id: habit.id, day: null } });
+  }
+  async function removeHabit(id: string) {
+    await run({ command: 'delete_habit', input: { id } });
+  }
+  async function saveReview() {
+    const result = await run({
+      command: 'save_daily_review',
+      input: { day: snapshot?.today ?? null, note: reviewNote },
+    });
+    if (result) {
+      reviewSynced = true;
+      notice = 'Review saved.';
+    }
+  }
+  async function exportBackup(kind: 'json' | 'markdown') {
+    try {
+      const path = await exportData(kind);
+      dataNotice = `Exported to ${path}`;
+    } catch (e) {
+      error = String(e);
+    }
+  }
+  async function importBackup() {
+    if (!importPath.trim()) return;
+    try {
+      const summary = await importData(importPath.trim());
+      dataNotice = `Imported ${summary.tasks} tasks, ${summary.projects} projects, ${summary.habits} habits; skipped ${summary.skipped} existing records.`;
+      reviewSynced = false;
+      await refresh();
+    } catch (e) {
+      error = String(e);
+    }
+  }
   async function openProject(path: string | null) {
     if (!path) return;
     try {
@@ -608,6 +718,30 @@
       minute: '2-digit',
     });
   }
+  $effect(() => {
+    if (!activeFocus) {
+      focusElapsedMinutes = 0;
+      return;
+    }
+    const update = () => {
+      const end = activeFocus!.ended_at
+        ? new Date(activeFocus!.ended_at).getTime()
+        : Date.now();
+      focusElapsedMinutes = Math.max(
+        0,
+        Math.floor((end - new Date(activeFocus!.started_at).getTime()) / 60000),
+      );
+    };
+    update();
+    const timer = setInterval(update, 1000);
+    return () => clearInterval(timer);
+  });
+  $effect(() => {
+    if (!reviewSynced && todayReview) {
+      reviewNote = todayReview.note;
+      reviewSynced = true;
+    }
+  });
   onMount(() => {
     if (!native) return;
     const unlisteners: (() => void)[] = [];
@@ -704,7 +838,7 @@
         {#each views as item, index (item)}<button
             class:active={view === item}
             onclick={() => navigate(item)}
-            ><span class="nav-icon">{['☀', '▣', '▦', '◧', '◇', '✓'][index]}</span
+            ><span class="nav-icon">{['☀', '▣', '▦', '◧', '◇', '◔', '✓'][index]}</span
             >{item}{#if item === 'Inbox'}<span class="count"
                 >{snapshot?.tasks.filter(
                   (t) =>
@@ -761,8 +895,10 @@
                     ? 'Give your day some shape.'
                     : view === 'Projects'
                       ? 'Build something over time.'
-                      : view === 'Study'
-                        ? 'Practice deliberately.'
+                    : view === 'Study'
+                      ? 'Practice deliberately.'
+                      : view === 'Insights'
+                        ? 'Notice what is working.'
                         : 'Look at what you’ve done.'}
             </h1>
             <p>
@@ -776,7 +912,9 @@
                       ? 'Projects, goal progress, templates and saved filters.'
                       : view === 'Study'
                         ? 'Track problems, review them on time, and stay ahead of deadlines.'
-                        : 'Small steps add up. Reopen a task whenever you need to.'}
+                        : view === 'Insights'
+                          ? 'Focus sessions, habits, a short review and your data.'
+                          : 'Small steps add up. Reopen a task whenever you need to.'}
             </p>
           </div>
           <div class="day-number">
@@ -787,7 +925,9 @@
                   ? 'THE LONG VIEW'
                   : view === 'Study'
                     ? 'KEEP SHARP'
-                    : 'ONE DAY AT A TIME'}</span
+                    : view === 'Insights'
+                      ? 'LOOK BACK'
+                      : 'ONE DAY AT A TIME'}</span
             >
           </div>
         </section>
@@ -1397,6 +1537,209 @@
               </div>
             {/if}
           </section>
+        {:else if view === 'Insights'}
+          <section
+            class="insights-view"
+            aria-label="Focus, habits, stats, review and data"
+          >
+            <div class="panel">
+              <div class="section-title"><h2>Focus</h2></div>
+              {#if activeFocus}
+                <div class="focus-active">
+                  <div>
+                    <strong
+                      >{activeFocus.kind === 'focus'
+                        ? 'Focus session'
+                        : 'Break'}</strong
+                    >
+                    <span
+                      >{focusTaskLabel(activeFocus)} · {focusElapsedMinutes} /
+                      {activeFocus.planned_min} min</span
+                    >
+                  </div>
+                  <button
+                    class="primary"
+                    disabled={busy}
+                    onclick={() => stopFocus(activeFocus!.id)}>Stop</button
+                  >
+                </div>
+              {:else}
+                <form
+                  onsubmit={(event) => {
+                    event.preventDefault();
+                    void startFocus();
+                  }}
+                >
+                  <select bind:value={focusDraft.task_id} aria-label="Focus task">
+                    <option value="">No task</option>
+                    {#each (snapshot?.tasks ?? []).filter((task) => task.status !== 'done' && task.status !== 'dropped') as task (task.id)}<option
+                        value={task.id}>{task.title}</option
+                      >{/each}
+                  </select>
+                  <input
+                    type="number"
+                    min="1"
+                    max="1440"
+                    bind:value={focusDraft.planned_min}
+                    aria-label="Focus minutes"
+                  />
+                  <select bind:value={focusDraft.kind} aria-label="Focus kind">
+                    <option value="focus">Focus</option>
+                    <option value="break">Break</option>
+                  </select>
+                  <button
+                    class="primary"
+                    type="submit"
+                    disabled={busy || !native}>Start focus</button
+                  >
+                </form>
+              {/if}
+              <p class="muted">
+                Stopping a focus session adds its minutes to the linked task.
+              </p>
+            </div>
+            <div class="panel">
+              <div class="section-title">
+                <h2>Habits <span>{habits.length}</span></h2>
+              </div>
+              <form
+                onsubmit={(event) => {
+                  event.preventDefault();
+                  void addHabit();
+                }}
+              >
+                <input
+                  bind:value={habitDraft.name}
+                  aria-label="Habit name"
+                  placeholder="New habit"
+                />
+                <input
+                  type="number"
+                  min="1"
+                  max="30"
+                  bind:value={habitDraft.cadence_days}
+                  aria-label="Habit cadence"
+                />
+                <button
+                  type="submit"
+                  disabled={busy || !native || !habitDraft.name.trim()}
+                  >Add habit</button
+                >
+              </form>
+              {#each habits as habit (habit.id)}
+                {@const streak = streakFor(habit.id)}
+                <div class="goal-row">
+                  <div>
+                    <strong>{habit.name}</strong>
+                    <span
+                      >every {habit.cadence_days} day(s) · streak {streak.current}
+                      · best {streak.best}{streak.last_done
+                        ? ` · last ${streak.last_done}`
+                        : ''}</span
+                    >
+                  </div>
+                  <button
+                    disabled={busy || !streak.due}
+                    onclick={() => logHabit(habit)}
+                    >{streak.due ? 'Log today' : 'Done'}</button
+                  ><button
+                    class="danger"
+                    disabled={busy}
+                    onclick={() => removeHabit(habit.id)}
+                    aria-label={`Delete habit ${habit.name}`}>×</button
+                  >
+                </div>
+              {/each}
+            </div>
+            <div class="panel">
+              <div class="section-title"><h2>Last 7 days</h2></div>
+              {#if weeklyStats}
+                {@const stats = weeklyStats}
+                <div class="stat-grid">
+                  <div><span>Completed</span><strong>{stats.completed}</strong></div>
+                  <div><span>Created</span><strong>{stats.created}</strong></div>
+                  <div><span>Carried</span><strong>{stats.carried}</strong></div>
+                  <div>
+                    <span>Focus</span><strong>{stats.focus_minutes}m</strong>
+                  </div>
+                  <div>
+                    <span>Estimate accuracy</span><strong
+                      >{stats.measured
+                        ? `${Math.round(stats.estimate_accuracy * 100)}%`
+                        : '—'}</strong
+                    >
+                  </div>
+                </div>
+                {#each stats.tag_stats as tag (tag.tag)}
+                  <div class="goal-row">
+                    <div>
+                      <strong>{tag.tag}</strong>
+                      <span
+                        >{tag.focus_minutes} focus min · {tag.completed} done</span
+                      >
+                    </div>
+                    <progress
+                      value={tag.focus_minutes}
+                      max={Math.max(1, stats.focus_minutes)}
+                    ></progress>
+                  </div>
+                {/each}
+              {/if}
+            </div>
+            <div class="panel">
+              <div class="section-title"><h2>End-of-day review</h2></div>
+              <textarea
+                bind:value={reviewNote}
+                rows="3"
+                aria-label="Daily review note"
+                placeholder="One line about today…"
+              ></textarea>
+              <div class="data-actions">
+                <button
+                  class="primary"
+                  disabled={busy || !native}
+                  onclick={saveReview}>Save review</button
+                >
+              </div>
+              {#if todayReview}<p class="muted">
+                  Saved for {todayReview.day}.
+                </p>{/if}
+            </div>
+            <div class="panel">
+              <div class="section-title"><h2>Data</h2></div>
+              <div class="data-actions">
+                <button
+                  disabled={busy || !native}
+                  onclick={() => exportBackup('json')}>Export JSON</button
+                ><button
+                  disabled={busy || !native}
+                  onclick={() => exportBackup('markdown')}
+                  >Export Markdown</button
+                >
+              </div>
+              <form
+                onsubmit={(event) => {
+                  event.preventDefault();
+                  void importBackup();
+                }}
+              >
+                <input
+                  bind:value={importPath}
+                  aria-label="Import file path"
+                  placeholder="Path to a Daybridge JSON export"
+                />
+                <button
+                  type="submit"
+                  disabled={busy || !native || !importPath.trim()}
+                  >Import JSON</button
+                >
+              </form>
+              {#if dataNotice}<p class="muted">{dataNotice}</p>{/if}
+              <p class="muted">
+                Daily backups live in the app-data folder under <code>backups/</code>.
+              </p>
+            </div>
+          </section>
         {:else}
           <div class:planner-layout={view === 'Planner'}>
           <section class="task-section">
@@ -1691,6 +2034,15 @@
               >{#each snapshot?.goals ?? [] as goal (goal.id)}<option
                   value={goal.id}>{goal.title}</option
                 >{/each}</select
+            ></label
+          ><label
+            >Repeats<select bind:value={edit.recurrence_rule}
+              ><option value="">Does not repeat</option
+              ><option value="daily">Daily</option
+              ><option value="weekdays">Weekdays</option
+              ><option value="weekly">Weekly</option
+              ><option value="monthly">Monthly</option
+              ><option value="every 3 days">Every 3 days</option></select
             ></label
           >
         </div>

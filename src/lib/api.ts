@@ -6,6 +6,7 @@ export type ProjectStatus = 'active' | 'paused' | 'archived';
 export type GoalHorizon = 'medium' | 'long';
 export type DsaDifficulty = 'easy' | 'medium' | 'hard';
 export type DsaStatus = 'todo' | 'solved';
+export type FocusKind = 'focus' | 'break';
 export interface Task {
   id: string;
   title: string;
@@ -23,6 +24,7 @@ export interface Task {
   project_id: string | null;
   goal_id: string | null;
   dsa_problem_id: string | null;
+  recurrence_rule: string | null;
   tags: string[];
   carried_count: number;
   created_at: string;
@@ -119,6 +121,74 @@ export interface Deadline {
   created_at: string;
   deleted_at: string | null;
 }
+export interface FocusSession {
+  id: string;
+  task_id: string | null;
+  started_at: string;
+  ended_at: string | null;
+  planned_min: number;
+  kind: FocusKind;
+  created_at: string;
+  deleted_at: string | null;
+}
+export interface Habit {
+  id: string;
+  name: string;
+  cadence_days: number;
+  created_at: string;
+  deleted_at: string | null;
+}
+export interface HabitLog {
+  id: string;
+  habit_id: string;
+  day: string;
+  created_at: string;
+}
+export interface HabitStreak {
+  habit_id: string;
+  current: number;
+  best: number;
+  last_done: string | null;
+  due: boolean;
+}
+export interface DailyReview {
+  id: string;
+  day: string;
+  note: string;
+  created_at: string;
+  deleted_at: string | null;
+}
+export interface TagStat {
+  tag: string;
+  focus_minutes: number;
+  completed: number;
+}
+export interface WeeklyStats {
+  week_start: string;
+  completed: number;
+  created: number;
+  carried: number;
+  focus_minutes: number;
+  estimate_accuracy: number;
+  measured: number;
+  tag_stats: TagStat[];
+}
+export interface ImportSummary {
+  tasks: number;
+  projects: number;
+  goals: number;
+  templates: number;
+  saved_filters: number;
+  dsa_problems: number;
+  subjects: number;
+  syllabus_items: number;
+  deadlines: number;
+  habits: number;
+  habit_logs: number;
+  focus_sessions: number;
+  daily_reviews: number;
+  skipped: number;
+}
 export interface Settings {
   timezone: string;
   max_tasks: number;
@@ -147,6 +217,12 @@ export interface Snapshot {
   subjects: Subject[];
   syllabus_items: SyllabusItem[];
   deadlines: Deadline[];
+  focus_sessions: FocusSession[];
+  active_focus: FocusSession | null;
+  habits: Habit[];
+  habit_streaks: HabitStreak[];
+  daily_reviews: DailyReview[];
+  weekly_stats: WeeklyStats;
 }
 export type TaskEdit = Pick<
   Task,
@@ -162,6 +238,7 @@ export type TaskEdit = Pick<
   | 'parent_id'
   | 'project_id'
   | 'goal_id'
+  | 'recurrence_rule'
   | 'planned_day'
 > & { due_local: string | null; scheduled_local: string | null };
 export type Command =
@@ -304,7 +381,25 @@ export type Command =
         study_min: number;
       };
     }
-  | { command: 'delete_deadline'; input: { id: string } };
+  | { command: 'delete_deadline'; input: { id: string } }
+  | {
+      command: 'start_focus';
+      input: { task_id: string | null; planned_min: number; kind: FocusKind };
+    }
+  | { command: 'stop_focus'; input: { id: string } }
+  | {
+      command: 'create_habit';
+      input: { name: string; cadence_days: number };
+    }
+  | {
+      command: 'log_habit';
+      input: { habit_id: string; day: string | null };
+    }
+  | { command: 'delete_habit'; input: { id: string } }
+  | {
+      command: 'save_daily_review';
+      input: { day: string | null; note: string };
+    };
 export type Response =
   | { type: 'snapshot'; data: Snapshot }
   | { type: 'task'; data: Task }
@@ -318,6 +413,10 @@ export type Response =
   | { type: 'subject'; data: Subject }
   | { type: 'syllabus_item'; data: SyllabusItem }
   | { type: 'deadline'; data: Deadline }
+  | { type: 'focus'; data: FocusSession }
+  | { type: 'habit'; data: Habit }
+  | { type: 'habit_log'; data: HabitLog }
+  | { type: 'review'; data: DailyReview }
   | { type: 'pong'; data: string };
 export const native = isTauri();
 export async function dispatch(command: Command): Promise<Response> {
@@ -333,4 +432,18 @@ export async function openInVscode(path: string): Promise<void> {
       'Open the desktop app with npm run desktop. Browser mode cannot launch VS Code.',
     );
   return invoke<void>('open_in_vscode', { path });
+}
+export async function exportData(kind: 'json' | 'markdown'): Promise<string> {
+  if (!native)
+    throw new Error(
+      'Open the desktop app with npm run desktop. Browser mode cannot export data.',
+    );
+  return invoke<string>('export_data', { kind });
+}
+export async function importData(path: string): Promise<ImportSummary> {
+  if (!native)
+    throw new Error(
+      'Open the desktop app with npm run desktop. Browser mode cannot import data.',
+    );
+  return invoke<ImportSummary>('import_data', { path });
 }

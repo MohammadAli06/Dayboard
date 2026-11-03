@@ -23,6 +23,7 @@ pub fn parse(text: &str, now: DateTime<Utc>, tz: Tz) -> Result<ParsedTask> {
         tags: vec![],
         due_at: None,
         planned_day: None,
+        recurrence: None,
     };
     let mut words = Vec::new();
     let mut time = None;
@@ -68,6 +69,41 @@ pub fn parse(text: &str, now: DateTime<Utc>, tz: Tz) -> Result<ParsedTask> {
                     })?;
                 continue;
             }
+        }
+        let recurrence = match lower.as_str() {
+            "repeat" => match tokens.get(i).map(|s| s.to_ascii_lowercase()).as_deref() {
+                Some(rule @ ("daily" | "weekdays" | "weekly" | "monthly")) => {
+                    i += 1;
+                    Some(rule.to_string())
+                }
+                _ => None,
+            },
+            "every" => match tokens.get(i) {
+                Some(next)
+                    if next.eq_ignore_ascii_case("day") || next.eq_ignore_ascii_case("daily") =>
+                {
+                    i += 1;
+                    Some("daily".to_string())
+                }
+                Some(next) => match next.parse::<u32>() {
+                    Ok(n)
+                        if (1..=365).contains(&n)
+                            && tokens.get(i + 1).is_some_and(|d| {
+                                d.eq_ignore_ascii_case("day") || d.eq_ignore_ascii_case("days")
+                            }) =>
+                    {
+                        i += 2;
+                        Some(format!("every {n} days"))
+                    }
+                    _ => None,
+                },
+                None => None,
+            },
+            _ => None,
+        };
+        if let Some(rule) = recurrence {
+            parsed.recurrence = Some(rule);
+            continue;
         }
         let day = match lower.as_str() {
             "today" => Some(today),

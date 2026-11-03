@@ -30,6 +30,10 @@ Native UI Automation drove the debug app against an isolated data directory cont
 
 The same harness migrated the existing smoke database in place (`user_version` 2 → 3). It added a DSA problem, logged it as solved (stage 1, next review the following day, one linked revision task), then reviewed it (stage 2, a 3-day interval, the old revision completed and a new one created in one transaction). It added a subject and a syllabus item and toggled the item done. It created a deadline; the native date input required keyboard entry (Chromium ignores UIA value writes), and the resulting past date correctly produced a single same-day study task. The process stayed responsive throughout. Multi-day back-scheduling (4 days, 120 minutes → four 30-minute tasks before the deadline) is covered by the Rust integration test.
 
+### Phase 5 native validation (2026-11-03)
+
+The same harness migrated the smoke database in place (`user_version` 3 → 4) and confirmed the rolling startup backup (`backups/daybridge-2026-11-03.sqlite3`). It created a habit, logged it, saved an end-of-day review, started and stopped a focus session linked to a task, exported JSON and Markdown (`exports/`), and imported the JSON export back; the import reported zero inserts and 23 skipped existing records, as designed. A recurring task (daily rule) was completed and its next occurrence was created for the following day with the rule preserved, in the same transaction. The process stayed responsive throughout. A 3-second focus session correctly records zero whole minutes; the minute rollup is covered by the Rust test with a 30-minute session.
+
 ## Dependency audit
 
 `npm audit --omit=dev`: zero findings. The complete development dependency graph reports 14 findings (2 low, 12 moderate) propagated from `deepmerge` and `minimatch` in tooling. Critical findings in the initial test-runner dependency were removed by upgrading Vitest. No unsupported major transitive override was forced just to silence the audit. Review upstream fixes through Dependabot before exposing development servers or processing untrusted build inputs.

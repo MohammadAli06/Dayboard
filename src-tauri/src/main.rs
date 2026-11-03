@@ -1,7 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use chrono::{TimeZone, Utc};
 use dayboard_core::{
-    model::{Actor, Command, Response},
+    model::{Actor, Command, ImportSummary, Response},
     Core,
 };
 use std::sync::Arc;
@@ -12,6 +12,7 @@ use tauri_plugin_notification::NotificationExt;
 struct State {
     core: tokio::sync::Mutex<Core>,
     changed: Arc<tokio::sync::Notify>,
+    data_dir: std::path::PathBuf,
 }
 #[tauri::command]
 async fn dispatch(
@@ -54,6 +55,67 @@ fn show(app: &tauri::AppHandle, label: &str) {
         let _ = w.set_focus();
         let _ = w.emit("daybridge:shown", ());
     }
+}
+fn rolling_backup(core: &Core, data: &std::path::Path) {
+    let directory = data.join("backups");
+    if std::fs::create_dir_all(&directory).is_err() {
+        return;
+    }
+    let stamp = Utc::now().format("%Y-%m-%d").to_string();
+    let path = directory.join(format!("daybridge-{stamp}.sqlite3"));
+    if !path.exists() {
+        let _ = core.backup_to(&path);
+    }
+    let mut files: Vec<std::path::PathBuf> = std::fs::read_dir(&directory)
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "sqlite3")
+        })
+        .collect();
+    files.sort();
+    while files.len() > 7 {
+        let oldest = files.remove(0);
+        let _ = std::fs::remove_file(oldest);
+    }
+}
+#[tauri::command]
+async fn export_data(state: tauri::State<'_, State>, kind: String) -> Result<String, String> {
+    let (contents, extension) = {
+        let core = state.core.lock().await;
+        match kind.as_str() {
+            "markdown" => (core.export_markdown().map_err(|e| e.to_string())?, "md"),
+            _ => (core.export_json().map_err(|e| e.to_string())?, "json"),
+        }
+    };
+    let directory = state.data_dir.join("exports");
+    std::fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
+    let stamp = Utc::now().format("%Y%m%d-%H%M%S");
+    let path = directory.join(format!("daybridge-{stamp}.{extension}"));
+    std::fs::write(&path, contents).map_err(|e| e.to_string())?;
+    Ok(path.display().to_string())
+}
+#[tauri::command]
+async fn import_data(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, State>,
+    path: String,
+) -> Result<ImportSummary, String> {
+    let raw = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let (summary, remaining) = {
+        let mut core = state.core.lock().await;
+        let summary = core
+            .import_json(&raw, Actor::Ui, Utc::now())
+            .map_err(|e| e.to_string())?;
+        (summary, core.today_count(Utc::now()).unwrap_or(0))
+    };
+    state.changed.notify_one();
+    let _ = app.emit("daybridge:changed", ());
+    update_tray(&app, remaining);
+    Ok(summary)
 }
 fn percent_encode_path(value: &str) -> String {
     let mut out = String::new();
@@ -166,14 +228,20 @@ fn main() {
         .plugin(tauri_plugin_single_instance::init(|app, _, _| show(app, "main")))
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().with_handler(|app, _, event| { if event.state() == ShortcutState::Pressed { show(app, "capture"); } }).build())
-        .invoke_handler(tauri::generate_handler![dispatch, open_in_vscode])
+        .invoke_handler(tauri::generate_handler![
+            dispatch,
+            open_in_vscode,
+            export_data,
+            import_data
+        ])
         .setup(|app| {
             let data = std::env::var_os("DAYBRIDGE_DATA_DIR").map(std::path::PathBuf::from).unwrap_or(app.path().app_data_dir()?); std::fs::create_dir_all(&data)?;
             let mut core = Core::open(data.join("daybridge.sqlite3"))?;
             core.execute(Command::Rollover { dry_run: false }, Actor::Ui, Utc::now())?;
+            rolling_backup(&core, &data);
             let remaining = core.today_count(Utc::now()).unwrap_or(0);
             let changed = Arc::new(tokio::sync::Notify::new());
-            app.manage(State {core: tokio::sync::Mutex::new(core), changed: changed.clone()});
+            app.manage(State {core: tokio::sync::Mutex::new(core), changed: changed.clone(), data_dir: data.clone()});
             let open = tauri::menu::MenuItem::with_id(app, "open", "Open Daybridge", true, None::<&str>)?;
             let capture = tauri::menu::MenuItem::with_id(app, "capture", "Quick capture", true, None::<&str>)?;
             let quit = tauri::menu::MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;

@@ -50,6 +50,8 @@ pub struct Task {
     pub goal_id: Option<String>,
     #[serde(default)]
     pub dsa_problem_id: Option<String>,
+    #[serde(default)]
+    pub recurrence_rule: Option<String>,
     pub tags: Vec<String>,
     pub carried_count: u32,
     pub created_at: DateTime<Utc>,
@@ -189,6 +191,134 @@ pub struct Deadline {
     pub created_at: DateTime<Utc>,
     pub deleted_at: Option<DateTime<Utc>>,
 }
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum FocusKind {
+    Focus,
+    Break,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct FocusSession {
+    pub id: String,
+    pub task_id: Option<String>,
+    pub started_at: DateTime<Utc>,
+    pub ended_at: Option<DateTime<Utc>>,
+    pub planned_min: u32,
+    pub kind: FocusKind,
+    pub created_at: DateTime<Utc>,
+    pub deleted_at: Option<DateTime<Utc>>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct Habit {
+    pub id: String,
+    pub name: String,
+    pub cadence_days: u32,
+    pub created_at: DateTime<Utc>,
+    pub deleted_at: Option<DateTime<Utc>>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct HabitLog {
+    pub id: String,
+    pub habit_id: String,
+    pub day: NaiveDate,
+    pub created_at: DateTime<Utc>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct HabitStreak {
+    pub habit_id: String,
+    pub current: u32,
+    pub best: u32,
+    pub last_done: Option<NaiveDate>,
+    pub due: bool,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct DailyReview {
+    pub id: String,
+    pub day: NaiveDate,
+    pub note: String,
+    pub created_at: DateTime<Utc>,
+    pub deleted_at: Option<DateTime<Utc>>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct TagStat {
+    pub tag: String,
+    pub focus_minutes: u32,
+    pub completed: usize,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct WeeklyStats {
+    pub week_start: NaiveDate,
+    pub completed: usize,
+    pub created: usize,
+    pub carried: usize,
+    pub focus_minutes: u32,
+    pub estimate_accuracy: f64,
+    pub measured: usize,
+    pub tag_stats: Vec<TagStat>,
+}
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ImportSummary {
+    #[serde(default)]
+    pub tasks: usize,
+    #[serde(default)]
+    pub projects: usize,
+    #[serde(default)]
+    pub goals: usize,
+    #[serde(default)]
+    pub templates: usize,
+    #[serde(default)]
+    pub saved_filters: usize,
+    #[serde(default)]
+    pub dsa_problems: usize,
+    #[serde(default)]
+    pub subjects: usize,
+    #[serde(default)]
+    pub syllabus_items: usize,
+    #[serde(default)]
+    pub deadlines: usize,
+    #[serde(default)]
+    pub habits: usize,
+    #[serde(default)]
+    pub habit_logs: usize,
+    #[serde(default)]
+    pub focus_sessions: usize,
+    #[serde(default)]
+    pub daily_reviews: usize,
+    #[serde(default)]
+    pub skipped: usize,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExportBundle {
+    pub format: String,
+    pub version: u32,
+    pub exported_at: DateTime<Utc>,
+    #[serde(default)]
+    pub tasks: Vec<Task>,
+    #[serde(default)]
+    pub projects: Vec<Project>,
+    #[serde(default)]
+    pub goals: Vec<Goal>,
+    #[serde(default)]
+    pub templates: Vec<Template>,
+    #[serde(default)]
+    pub saved_filters: Vec<SavedFilter>,
+    #[serde(default)]
+    pub dsa_problems: Vec<DsaProblem>,
+    #[serde(default)]
+    pub subjects: Vec<Subject>,
+    #[serde(default)]
+    pub syllabus_items: Vec<SyllabusItem>,
+    #[serde(default)]
+    pub deadlines: Vec<Deadline>,
+    #[serde(default)]
+    pub habits: Vec<Habit>,
+    #[serde(default)]
+    pub habit_logs: Vec<HabitLog>,
+    #[serde(default)]
+    pub focus_sessions: Vec<FocusSession>,
+    #[serde(default)]
+    pub daily_reviews: Vec<DailyReview>,
+}
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct Settings {
     pub timezone: String,
@@ -217,6 +347,7 @@ pub struct ParsedTask {
     pub tags: Vec<String>,
     pub due_at: Option<DateTime<Utc>>,
     pub planned_day: Option<NaiveDate>,
+    pub recurrence: Option<String>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct TaskEdit {
@@ -234,6 +365,8 @@ pub struct TaskEdit {
     pub project_id: Option<String>,
     #[serde(default)]
     pub goal_id: Option<String>,
+    #[serde(default)]
+    pub recurrence_rule: Option<String>,
     pub due_local: Option<String>,
     pub scheduled_local: Option<String>,
     pub planned_day: Option<NaiveDate>,
@@ -393,6 +526,29 @@ pub enum Command {
     DeleteDeadline {
         id: String,
     },
+    StartFocus {
+        task_id: Option<String>,
+        planned_min: u32,
+        kind: FocusKind,
+    },
+    StopFocus {
+        id: String,
+    },
+    CreateHabit {
+        name: String,
+        cadence_days: u32,
+    },
+    LogHabit {
+        habit_id: String,
+        day: Option<NaiveDate>,
+    },
+    DeleteHabit {
+        id: String,
+    },
+    SaveDailyReview {
+        day: Option<NaiveDate>,
+        note: String,
+    },
 }
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct Capacity {
@@ -418,12 +574,18 @@ pub struct Snapshot {
     pub subjects: Vec<Subject>,
     pub syllabus_items: Vec<SyllabusItem>,
     pub deadlines: Vec<Deadline>,
+    pub focus_sessions: Vec<FocusSession>,
+    pub active_focus: Option<FocusSession>,
+    pub habits: Vec<Habit>,
+    pub habit_streaks: Vec<HabitStreak>,
+    pub daily_reviews: Vec<DailyReview>,
+    pub weekly_stats: WeeklyStats,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "type", content = "data", rename_all = "snake_case")]
 pub enum Response {
     Pong(String),
-    Snapshot(Snapshot),
+    Snapshot(Box<Snapshot>),
     Parsed(ParsedTask),
     Task(Task),
     Tasks(Vec<Task>),
@@ -436,4 +598,8 @@ pub enum Response {
     Subject(Subject),
     SyllabusItem(SyllabusItem),
     Deadline(Deadline),
+    Focus(FocusSession),
+    Habit(Habit),
+    HabitLog(HabitLog),
+    Review(DailyReview),
 }

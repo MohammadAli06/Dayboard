@@ -31,10 +31,11 @@ On first use, open **Preferences → Use this device's timezone**, then save. Th
 ## What works
 
 - Inbox, Today, seven-day planner, completed/dropped tasks and global FTS5 search.
-- Quick capture with `#area`, `@context`, `!type`, `p1`–`p4`, `45m`, `1h30m`, `today`, `tomorrow`, weekdays, `next week`, ISO dates and 12/24-hour times.
+- Quick capture with `#area`, `@context`, `!type`, `p1`–`p4`, `45m`, `1h30m`, `today`, `tomorrow`, weekdays, `next week`, ISO dates, 12/24-hour times, `repeat daily|weekdays|weekly|monthly` and `every 3 days`.
 - Task editing, notes, parent/subtask links, energy, estimate/actual minutes, soft delete and immediate restore.
 - Projects with a backlog/doing/done board, repo path and branch, **Open in VS Code**, local GitHub issue URL import, task templates, goals with derived progress, and saved filters.
 - DSA problem tracker with confidence-based spaced repetition (1/3/7/21 days), linked revision tasks, topic coverage, subjects with syllabus checklists, and deadlines that back-schedule study tasks.
+- Focus sessions (focus/break) that roll elapsed minutes into the linked task, habits with streaks, daily review notes, last-7-days stats, recurrence rules, JSON/Markdown export, JSON import and rolling daily backups.
 - Drag-to-hour time blocking, accessible date/time fields, capacity warnings and rule-based plan suggestions.
 - Calendar rollover with carried counts, preserving original due deadlines.
 - Tray menu, single instance, global capture and event-driven native reminders.
@@ -46,7 +47,7 @@ Read a chapter #college p2 1h30m tomorrow
 Review notes !revision fri 09:30
 ```
 
-Recognized metadata tokens are removed from the title. Date-only capture means 17:00 in your configured timezone; time-only means today. Unsupported future syntax (recurrence and `^goal` capture) remains literal title text; link a goal from the task editor instead. Ambiguous/nonexistent daylight-saving times are rejected so you can choose another time.
+Recognized metadata tokens are removed from the title. Date-only capture means 17:00 in your configured timezone; time-only means today. Recurrence uses `repeat daily`, `repeat weekdays`, `repeat weekly`, `repeat monthly` or `every N days`, and is also selectable in the editor. Unsupported future syntax (`^goal` capture) remains literal title text; link a goal from the task editor instead. Ambiguous/nonexistent daylight-saving times are rejected so you can choose another time.
 
 | Shortcut                 | Action                                                                 |
 | ------------------------ | ---------------------------------------------------------------------- |
@@ -69,7 +70,7 @@ SQLite lives in Tauri's app-data directory under `dev.daybridge.desktop`, never 
 
 For an isolated testing or portable data directory, set `DAYBRIDGE_DATA_DIR` to an absolute directory before starting the app. The default remains the OS app-data directory.
 
-The DB uses WAL, migrations and foreign keys. Mutations and audit events commit together. Deleted tasks are retained; task history can contain previous titles/notes. The database is **not encrypted**. To manually back up, quit through the tray and copy the database; while running, SQLite may also need its WAL file. Automatic backups/export are future work.
+The DB uses WAL, migrations and foreign keys. Mutations and audit events commit together. Deleted tasks are retained; task history can contain previous titles/notes. The database is **not encrypted**. To manually back up, quit through the tray and copy the database; while running, SQLite may also need its WAL file. Exports and rolling backups (newest seven) are written under `exports/` and `backups/` in the same app-data directory. Import is additive and skips IDs that already exist.
 
 The app makes no runtime network requests. Installing dependencies and building may download packages/tooling. `.gitignore` excludes databases, WALs, backups, exports, environment files, keys, build output and private agent state. Review `git status` before publishing; ignore rules cannot undo a secret already committed.
 
@@ -114,7 +115,7 @@ Native installers appear under `target/release/bundle/`. A Windows x64 NSIS inst
 
 ## Roadmap and limitations
 
-Phase 3 is implemented: projects with a board, repo/VS Code hand-off, local GitHub issue import, templates, goals and saved filters. Phase 4 is implemented: DSA spaced repetition, topic coverage, subjects/syllabus and deadline study tasks. Phases 5–7 remain separate work: habits/focus/stats, recurrence, import/export/rolling backups, optional Jarvis MCP/HTTP bridge, updater and autostart. There is no active bridge or listening server in the packaged application.
+Phase 3 is implemented: projects with a board, repo/VS Code hand-off, local GitHub issue import, templates, goals and saved filters. Phase 4 is implemented: DSA spaced repetition, topic coverage, subjects/syllabus and deadline study tasks. Phase 5 is implemented: focus sessions, habits/streaks, recurrence, daily review, last-7-days stats, export/import and rolling backups. Phases 6–7 remain separate work: the optional Jarvis MCP/HTTP bridge, updater and autostart. There is no active bridge or listening server in the packaged application.
 
 Native webview suspension, fresh-machine installation on all three OSes, notification permissions, accessibility with a screen reader, and the plan's performance budgets need manual validation. Hidden UI avoids interval work, but this is not a claim that every OS suspends its webview. Task DOM rendering is bounded; snapshots currently load all task data, so very large archives need database pagination in a later performance pass. See [validation notes](docs/validation.md).
 

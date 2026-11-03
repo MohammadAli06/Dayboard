@@ -1049,3 +1049,96 @@ progress::-moz-progress-bar {
   color: var(--muted);
   text-decoration: line-through;
 }
+/* Phase 5: focus, habits, review, stats and data */
+.insights-view {
+  display: grid;
+  gap: 18px;
+}
+.insights-view .panel {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 18px;
+  background: var(--surface);
+}
+.insights-view .panel form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.insights-view .panel form input,
+.insights-view .panel form select {
+  flex: 1 1 140px;
+  min-width: 110px;
+  padding: 8px 9px;
+  font-size: 12px;
+  color: #e8e9eb;
+  background: #141619;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.insights-view .panel form button {
+  font-size: 11px;
+}
+.insights-view textarea {
+  width: 100%;
+  padding: 9px;
+  font-size: 12px;
+  color: #e8e9eb;
+  background: #141619;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  resize: vertical;
+}
+.focus-active {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid #3a4333;
+  border-radius: 8px;
+  background: #181d16;
+}
+.focus-active > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.focus-active strong {
+  font-size: 13px;
+}
+.focus-active span {
+  color: var(--muted);
+  font-size: 11px;
+}
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.stat-grid > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #141619;
+}
+.stat-grid span {
+  color: var(--muted);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.stat-grid strong {
+  font-size: 16px;
+  color: #e8e9eb;
+}
+.data-actions {
+  display: flex;
+  gap: 8px;
+  margin: 10px 0;
+}

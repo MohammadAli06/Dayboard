@@ -399,6 +399,7 @@ fn edit_for(task: &Task) -> TaskEdit {
         parent_id: task.parent_id.clone(),
         project_id: task.project_id.clone(),
         goal_id: task.goal_id.clone(),
+        recurrence_rule: task.recurrence_rule.clone(),
         scheduled_local: task
             .scheduled_start
             .map(|d| d.format("%Y-%m-%dT%H:%M").to_string()),
@@ -775,6 +776,9 @@ fn existing_database_gains_phase_three_tables() {
     assert!(core.dsa_problems().unwrap().is_empty());
     assert!(core.subjects().unwrap().is_empty());
     assert!(core.deadlines().unwrap().is_empty());
+    assert!(core.focus_sessions().unwrap().is_empty());
+    assert!(core.habits().unwrap().is_empty());
+    assert!(core.daily_reviews().unwrap().is_empty());
     assert!(core
         .execute(
             Command::CreateProject {
@@ -1088,4 +1092,346 @@ fn subjects_and_syllabus_toggle_and_soft_delete() {
         Response::Snapshot(s) => assert!(s.subjects.is_empty()),
         _ => panic!(),
     }
+}
+#[test]
+fn parser_extracts_recurrence_tokens() {
+    for (input, title, expected) in [
+        ("Write repeat daily", "Write", Some("daily")),
+        ("Review repeat weekdays", "Review", Some("weekdays")),
+        ("Standup repeat weekly", "Standup", Some("weekly")),
+        ("Pay rent repeat monthly", "Pay rent", Some("monthly")),
+        ("Run every 3 days", "Run", Some("every 3 days")),
+        ("Read every day", "Read", Some("daily")),
+    ] {
+        let parsed = parser::parse(input, now(), chrono_tz::UTC).unwrap();
+        assert_eq!(parsed.title, title, "{input}");
+        assert_eq!(parsed.recurrence.as_deref(), expected, "{input}");
+    }
+    for input in ["Daily standup", "Weekly review", "Monthly report"] {
+        let parsed = parser::parse(input, now(), chrono_tz::UTC).unwrap();
+        assert_eq!(parsed.title, input);
+        assert!(parsed.recurrence.is_none());
+    }
+    let plain = parser::parse("Read a book", now(), chrono_tz::UTC).unwrap();
+    assert!(plain.recurrence.is_none());
+}
+#[test]
+fn focus_session_rolls_minutes_into_task() {
+    let mut core = Core::memory().unwrap();
+    let task = create(&mut core, "Write tests");
+    let session = match core
+        .execute(
+            Command::StartFocus {
+                task_id: Some(task.id.clone()),
+                planned_min: 25,
+                kind: FocusKind::Focus,
+            },
+            Actor::User,
+            now(),
+        )
+        .unwrap()
+    {
+        Response::Focus(session) => session,
+        _ => panic!(),
+    };
+    assert!(core
+        .execute(
+            Command::StartFocus {
+                task_id: None,
+                planned_min: 5,
+                kind: FocusKind::Break,
+            },
+            Actor::User,
+            now(),
+        )
+        .is_err());
+    let later = now() + chrono::Duration::minutes(30);
+    let stopped = match core
+        .execute(
+            Command::StopFocus {
+                id: session.id.clone(),
+            },
+            Actor::User,
+            later,
+        )
+        .unwrap()
+    {
+        Response::Focus(session) => session,
+        _ => panic!(),
+    };
+    assert!(stopped.ended_at.is_some());
+    let after = core
+        .tasks()
+        .unwrap()
+        .into_iter()
+        .find(|task_after| task_after.id == task.id)
+        .unwrap();
+    assert_eq!(after.actual_min, 30);
+    assert!(core
+        .execute(Command::StopFocus { id: session.id }, Actor::User, later)
+        .is_err());
+    match core
+        .execute(Command::Snapshot { search: None }, Actor::User, later)
+        .unwrap()
+    {
+        Response::Snapshot(s) => {
+            assert!(s.active_focus.is_none());
+            assert_eq!(s.weekly_stats.focus_minutes, 30);
+        }
+        _ => panic!(),
+    }
+}
+#[test]
+fn habits_log_and_streaks() {
+    let mut core = Core::memory().unwrap();
+    let habit = match core
+        .execute(
+            Command::CreateHabit {
+                name: "DSA daily".into(),
+                cadence_days: 1,
+            },
+            Actor::User,
+            now(),
+        )
+        .unwrap()
+    {
+        Response::Habit(habit) => habit,
+        _ => panic!(),
+    };
+    for day in ["2026-10-31", "2026-11-01", "2026-11-02"] {
+        core.execute(
+            Command::LogHabit {
+                habit_id: habit.id.clone(),
+                day: Some(day.parse().unwrap()),
+            },
+            Actor::User,
+            now(),
+        )
+        .unwrap();
+    }
+    assert!(core
+        .execute(
+            Command::LogHabit {
+                habit_id: habit.id.clone(),
+                day: Some("2026-11-02".parse().unwrap()),
+            },
+            Actor::User,
+            now(),
+        )
+        .is_err());
+    match core
+        .execute(Command::Snapshot { search: None }, Actor::User, now())
+        .unwrap()
+    {
+        Response::Snapshot(s) => {
+            let streak = s
+                .habit_streaks
+                .iter()
+                .find(|streak| streak.habit_id == habit.id)
+                .unwrap();
+            assert_eq!((streak.current, streak.best), (3, 3));
+            assert_eq!(streak.last_done.unwrap().to_string(), "2026-11-02");
+            assert!(!streak.due);
+        }
+        _ => panic!(),
+    }
+}
+fn recurring_task(core: &mut Core, title: &str, rule: &str) -> Task {
+    let task = create(core, title);
+    let mut edit = edit_for(&task);
+    edit.recurrence_rule = Some(rule.into());
+    core.execute(Command::UpdateTask(edit), Actor::User, now())
+        .unwrap();
+    task
+}
+#[test]
+fn recurrence_creates_the_next_occurrence() {
+    for (rule, completed_at, expected) in [
+        ("daily", "2026-11-02T10:00:00Z", "2026-11-03"),
+        ("weekdays", "2026-11-02T10:00:00Z", "2026-11-03"),
+        ("weekdays", "2026-11-06T10:00:00Z", "2026-11-09"),
+        ("weekly", "2026-11-02T10:00:00Z", "2026-11-09"),
+        ("monthly", "2026-11-02T10:00:00Z", "2026-12-02"),
+        ("every 3 days", "2026-11-02T10:00:00Z", "2026-11-05"),
+    ] {
+        let mut core = Core::memory().unwrap();
+        let task = recurring_task(&mut core, "Recurring task", rule);
+        core.execute(
+            Command::CompleteTask {
+                id: task.id.clone(),
+                completed: true,
+            },
+            Actor::User,
+            completed_at.parse().unwrap(),
+        )
+        .unwrap();
+        let next = core
+            .tasks()
+            .unwrap()
+            .into_iter()
+            .find(|candidate| candidate.title == "Recurring task" && candidate.id != task.id)
+            .expect(rule);
+        assert_eq!(
+            next.planned_day.unwrap().to_string(),
+            expected,
+            "{rule} completed at {completed_at}"
+        );
+        assert_eq!(next.recurrence_rule.as_deref(), Some(rule));
+        assert_eq!(next.status, Status::Todo);
+    }
+}
+#[test]
+fn reviews_upsert_and_weekly_stats_are_derived() {
+    let mut core = Core::memory().unwrap();
+    let first = match core
+        .execute(
+            Command::SaveDailyReview {
+                day: None,
+                note: "Good day".into(),
+            },
+            Actor::User,
+            now(),
+        )
+        .unwrap()
+    {
+        Response::Review(review) => review,
+        _ => panic!(),
+    };
+    let second = match core
+        .execute(
+            Command::SaveDailyReview {
+                day: None,
+                note: "Updated".into(),
+            },
+            Actor::User,
+            now(),
+        )
+        .unwrap()
+    {
+        Response::Review(review) => review,
+        _ => panic!(),
+    };
+    assert_eq!(first.id, second.id);
+    assert_eq!(core.daily_reviews().unwrap().len(), 1);
+    assert_eq!(core.daily_reviews().unwrap()[0].note, "Updated");
+    assert!(core
+        .execute(
+            Command::SaveDailyReview {
+                day: Some("2026-11-05".parse().unwrap()),
+                note: "Future".into(),
+            },
+            Actor::User,
+            now(),
+        )
+        .is_err());
+    let task = create(&mut core, "Write tests #dsa");
+    let session = match core
+        .execute(
+            Command::StartFocus {
+                task_id: Some(task.id.clone()),
+                planned_min: 25,
+                kind: FocusKind::Focus,
+            },
+            Actor::User,
+            now(),
+        )
+        .unwrap()
+    {
+        Response::Focus(session) => session,
+        _ => panic!(),
+    };
+    let later = now() + chrono::Duration::minutes(30);
+    core.execute(Command::StopFocus { id: session.id }, Actor::User, later)
+        .unwrap();
+    core.execute(
+        Command::CompleteTask {
+            id: task.id,
+            completed: true,
+        },
+        Actor::User,
+        later,
+    )
+    .unwrap();
+    match core
+        .execute(Command::Snapshot { search: None }, Actor::User, later)
+        .unwrap()
+    {
+        Response::Snapshot(s) => {
+            assert_eq!(s.weekly_stats.completed, 1);
+            assert_eq!(s.weekly_stats.focus_minutes, 30);
+            assert_eq!(s.weekly_stats.measured, 1);
+            assert!((s.weekly_stats.estimate_accuracy - 0.8).abs() < 0.001);
+            let tag = s
+                .weekly_stats
+                .tag_stats
+                .iter()
+                .find(|stat| stat.tag == "#dsa")
+                .unwrap();
+            assert_eq!((tag.focus_minutes, tag.completed), (30, 1));
+        }
+        _ => panic!(),
+    }
+}
+#[test]
+fn export_import_round_trip_skips_existing_ids() {
+    let mut core = Core::memory().unwrap();
+    create(&mut core, "One #work");
+    create(&mut core, "Two");
+    core.execute(
+        Command::CreateProject {
+            name: "Daybridge".into(),
+            kind: ProjectKind::Coding,
+            repo_path: None,
+            branch: None,
+        },
+        Actor::User,
+        now(),
+    )
+    .unwrap();
+    core.execute(
+        Command::CreateHabit {
+            name: "Gym".into(),
+            cadence_days: 2,
+        },
+        Actor::User,
+        now(),
+    )
+    .unwrap();
+    let json = core.export_json().unwrap();
+    let mut other = Core::memory().unwrap();
+    let summary = other.import_json(&json, Actor::User, now()).unwrap();
+    assert_eq!(summary.tasks, 2);
+    assert_eq!(summary.projects, 1);
+    assert_eq!(summary.habits, 1);
+    assert_eq!(other.tasks().unwrap().len(), 2);
+    let again = other.import_json(&json, Actor::User, now()).unwrap();
+    assert_eq!(again.tasks, 0);
+    assert!(again.skipped >= 2);
+    match other
+        .execute(
+            Command::Snapshot {
+                search: Some("One".into()),
+            },
+            Actor::User,
+            now(),
+        )
+        .unwrap()
+    {
+        Response::Snapshot(s) => assert_eq!(s.tasks.len(), 1),
+        _ => panic!(),
+    }
+    let markdown = core.export_markdown().unwrap();
+    assert!(markdown.contains("One"));
+    assert!(markdown.contains("## Projects"));
+}
+#[test]
+fn backup_creates_a_readable_copy() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("source.db");
+    let mut core = Core::open(&source).unwrap();
+    create(&mut core, "Backup me");
+    let backup = dir.path().join("backup.db");
+    core.backup_to(&backup).unwrap();
+    let copy = Core::open(&backup).unwrap();
+    assert_eq!(copy.tasks().unwrap().len(), 1);
 }

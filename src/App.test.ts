@@ -40,6 +40,7 @@ const task: Task = {
   project_id: null,
   goal_id: null,
   dsa_problem_id: null,
+  recurrence_rule: null,
   tags: ['#college'],
   carried_count: 0,
   created_at: '2026-11-02T00:00:00Z',
@@ -72,6 +73,21 @@ beforeEach(() => {
     subjects: [],
     syllabus_items: [],
     deadlines: [],
+    focus_sessions: [],
+    active_focus: null,
+    habits: [],
+    habit_streaks: [],
+    daily_reviews: [],
+    weekly_stats: {
+      week_start: '2026-10-27',
+      completed: 0,
+      created: 0,
+      carried: 0,
+      focus_minutes: 0,
+      estimate_accuracy: 0,
+      measured: 0,
+      tag_stats: [],
+    },
   };
   mocked.invoke.mockImplementation(
     async (_name: string, args: { command: Command }) => {
@@ -328,5 +344,50 @@ describe('desktop task flows', () => {
         },
       }),
     );
+  });
+  it('creates a habit and saves a review in Insights', async () => {
+    const user = userEvent.setup();
+    render(App);
+    await screen.findByText('Read a chapter');
+    await user.click(screen.getByRole('button', { name: /Insights/ }));
+    await user.type(screen.getByLabelText('Habit name'), 'Gym');
+    await user.click(screen.getByRole('button', { name: /Add habit/ }));
+    await waitFor(() =>
+      expect(mocked.invoke).toHaveBeenCalledWith('dispatch', {
+        command: {
+          command: 'create_habit',
+          input: { name: 'Gym', cadence_days: 1 },
+        },
+      }),
+    );
+    await user.type(screen.getByLabelText('Daily review note'), 'Shipped phase 5');
+    await user.click(screen.getByRole('button', { name: 'Save review' }));
+    await waitFor(() =>
+      expect(mocked.invoke).toHaveBeenCalledWith('dispatch', {
+        command: {
+          command: 'save_daily_review',
+          input: { day: '2026-11-02', note: 'Shipped phase 5' },
+        },
+      }),
+    );
+  });
+  it('saves a recurrence rule from the task editor', async () => {
+    const user = userEvent.setup();
+    render(App);
+    await screen.findByText('Read a chapter');
+    await user.click(
+      screen.getByRole('button', { name: /Read a chapter.*#college/ }),
+    );
+    await user.selectOptions(screen.getByLabelText('Repeats'), 'daily');
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    const writes = mocked.invoke.mock.calls.filter(
+      ([, args]) => args.command.command === 'update_task',
+    );
+    expect(writes).toHaveLength(1);
+    expect(writes[0][1].command).toMatchObject({
+      command: 'update_task',
+      input: { recurrence_rule: 'daily' },
+    });
   });
 });

@@ -1,7 +1,7 @@
 pub mod model;
 pub mod parser;
 pub mod planner;
-use chrono::{DateTime, NaiveDate, TimeZone, Utc};
+use chrono::{DateTime, Datelike, NaiveDate, TimeZone, Utc};
 use chrono_tz::Tz;
 use model::*;
 use planner::Planner;
@@ -88,6 +88,246 @@ fn local_five_pm(day: NaiveDate, tz: Tz) -> Option<DateTime<Utc>> {
         .map(|at| at.with_timezone(&Utc))
 }
 
+fn normalize_recurrence(rule: Option<&str>) -> Result<Option<String>> {
+    let rule = rule.unwrap_or("").trim().to_lowercase();
+    if rule.is_empty() || rule == "none" {
+        return Ok(None);
+    }
+    let parts: Vec<&str> = rule.split_whitespace().collect();
+    let normalized = match parts.as_slice() {
+        ["daily"] | ["weekly"] | ["weekdays"] | ["monthly"] => parts[0].to_string(),
+        ["every", "day"] => "daily".to_string(),
+        ["every", n, "days"] | ["every", n, "day"] => {
+            let days: u32 = n.parse().map_err(|_| {
+                Error::Validation("Recurrence days must be a number from 1 to 365".into())
+            })?;
+            if !(1..=365).contains(&days) {
+                return Err(Error::Validation(
+                    "Recurrence days must be between 1 and 365".into(),
+                ));
+            }
+            format!("every {days} days")
+        }
+        _ => {
+            return Err(Error::Validation(
+                "Use daily, weekdays, weekly, monthly or \"every N days\"".into(),
+            ))
+        }
+    };
+    Ok(Some(normalized))
+}
+
+fn next_occurrence_day(rule: &str, from: NaiveDate) -> Option<NaiveDate> {
+    match rule {
+        "daily" => Some(from + chrono::Duration::days(1)),
+        "weekdays" => {
+            let mut day = from + chrono::Duration::days(1);
+            while day.weekday() == chrono::Weekday::Sat || day.weekday() == chrono::Weekday::Sun {
+                day += chrono::Duration::days(1);
+            }
+            Some(day)
+        }
+        "weekly" => Some(from + chrono::Duration::days(7)),
+        "monthly" => from.checked_add_months(chrono::Months::new(1)),
+        _ => rule
+            .strip_prefix("every ")
+            .and_then(|rest| rest.split_whitespace().next())
+            .and_then(|n| n.parse::<i64>().ok())
+            .map(|n| from + chrono::Duration::days(n)),
+    }
+}
+
+fn recurring_task(
+    task: &Task,
+    rule: &str,
+    base: NaiveDate,
+    tz: Tz,
+    now: DateTime<Utc>,
+) -> Option<Task> {
+    let day = next_occurrence_day(rule, base)?;
+    Some(Task {
+        id: ulid::Ulid::new().to_string(),
+        title: task.title.clone(),
+        notes: task.notes.clone(),
+        status: Status::Todo,
+        priority: task.priority,
+        energy: task.energy,
+        est_min: task.est_min,
+        actual_min: 0,
+        due_at: local_five_pm(day, tz),
+        planned_day: Some(day),
+        scheduled_start: None,
+        scheduled_end: None,
+        parent_id: task.parent_id.clone(),
+        project_id: task.project_id.clone(),
+        goal_id: task.goal_id.clone(),
+        dsa_problem_id: None,
+        recurrence_rule: Some(rule.to_string()),
+        tags: task.tags.clone(),
+        carried_count: 0,
+        created_at: now,
+        completed_at: None,
+        deleted_at: None,
+        reminded_at: None,
+    })
+}
+
+fn current_streak(days: &std::collections::BTreeSet<NaiveDate>, today: NaiveDate) -> u32 {
+    let mut day = if days.contains(&today) {
+        Some(today)
+    } else {
+        today.pred_opt()
+    };
+    let mut count = 0;
+    while let Some(date) = day {
+        if !days.contains(&date) {
+            break;
+        }
+        count += 1;
+        day = date.pred_opt();
+    }
+    count
+}
+
+fn best_streak(days: &std::collections::BTreeSet<NaiveDate>) -> u32 {
+    let mut best = 0;
+    let mut run = 0;
+    let mut previous: Option<NaiveDate> = None;
+    for &day in days {
+        run = match previous {
+            Some(prev) if prev.succ_opt() == Some(day) => run + 1,
+            _ => 1,
+        };
+        best = best.max(run);
+        previous = Some(day);
+    }
+    best
+}
+
+fn habit_streaks(habits: &[Habit], logs: &[HabitLog], today: NaiveDate) -> Vec<HabitStreak> {
+    habits
+        .iter()
+        .map(|habit| {
+            let days: std::collections::BTreeSet<NaiveDate> = logs
+                .iter()
+                .filter(|log| log.habit_id == habit.id)
+                .map(|log| log.day)
+                .collect();
+            let last_done = days.iter().next_back().copied();
+            HabitStreak {
+                habit_id: habit.id.clone(),
+                current: current_streak(&days, today),
+                best: best_streak(&days),
+                last_done,
+                due: last_done
+                    .is_none_or(|day| (today - day).num_days() >= habit.cadence_days as i64),
+            }
+        })
+        .collect()
+}
+
+fn weekly_stats(
+    tasks: &[Task],
+    sessions: &[FocusSession],
+    today: NaiveDate,
+    tz: Tz,
+) -> WeeklyStats {
+    let week_start = today - chrono::Duration::days(6);
+    let local_day = |at: DateTime<Utc>| at.with_timezone(&tz).date_naive();
+    let live: Vec<&Task> = tasks
+        .iter()
+        .filter(|task| task.deleted_at.is_none())
+        .collect();
+    let in_window = |at: Option<DateTime<Utc>>| at.is_some_and(|at| local_day(at) >= week_start);
+    let completed_tasks: Vec<&&Task> = live
+        .iter()
+        .filter(|task| task.status == Status::Done && in_window(task.completed_at))
+        .collect();
+    let completed = completed_tasks.len();
+    let created = live
+        .iter()
+        .filter(|task| local_day(task.created_at) >= week_start)
+        .count();
+    let carried = live
+        .iter()
+        .filter(|task| task.status.active() && task.carried_count > 0)
+        .count();
+    let mut focus_minutes = 0u32;
+    let mut tag_focus: std::collections::BTreeMap<String, u32> = std::collections::BTreeMap::new();
+    for session in sessions.iter().filter(|session| {
+        session.deleted_at.is_none()
+            && session.kind == FocusKind::Focus
+            && in_window(session.ended_at)
+    }) {
+        if let Some(end) = session.ended_at {
+            let minutes = ((end - session.started_at).num_seconds().max(0) / 60) as u32;
+            focus_minutes += minutes;
+            if let Some(task_id) = &session.task_id {
+                if let Some(task) = tasks.iter().find(|task| &task.id == task_id) {
+                    for tag in &task.tags {
+                        *tag_focus.entry(tag.clone()).or_default() += minutes;
+                    }
+                }
+            }
+        }
+    }
+    let mut measured = 0usize;
+    let mut accuracy = 0.0;
+    for task in &completed_tasks {
+        if task.actual_min > 0 {
+            let ratio = 1.0
+                - ((task.actual_min as f64 - task.est_min as f64).abs()
+                    / task.est_min.max(1) as f64);
+            accuracy += ratio.clamp(0.0, 1.0);
+            measured += 1;
+        }
+    }
+    let estimate_accuracy = if measured == 0 {
+        0.0
+    } else {
+        (accuracy / measured as f64 * 100.0).round() / 100.0
+    };
+    let mut tag_completed: std::collections::BTreeMap<String, usize> =
+        std::collections::BTreeMap::new();
+    for task in &completed_tasks {
+        for tag in &task.tags {
+            *tag_completed.entry(tag.clone()).or_default() += 1;
+        }
+    }
+    let mut tag_stats: Vec<TagStat> = tag_focus
+        .iter()
+        .map(|(tag, minutes)| TagStat {
+            tag: tag.clone(),
+            focus_minutes: *minutes,
+            completed: *tag_completed.get(tag).unwrap_or(&0),
+        })
+        .collect();
+    for (tag, count) in &tag_completed {
+        if !tag_stats.iter().any(|stat| &stat.tag == tag) {
+            tag_stats.push(TagStat {
+                tag: tag.clone(),
+                focus_minutes: 0,
+                completed: *count,
+            });
+        }
+    }
+    tag_stats.sort_by(|a, b| {
+        b.focus_minutes
+            .cmp(&a.focus_minutes)
+            .then_with(|| a.tag.cmp(&b.tag))
+    });
+    WeeklyStats {
+        week_start,
+        completed,
+        created,
+        carried,
+        focus_minutes,
+        estimate_accuracy,
+        measured,
+        tag_stats,
+    }
+}
+
 fn revision_task(problem: &DsaProblem, day: NaiveDate, tz: Tz, now: DateTime<Utc>) -> Task {
     Task {
         id: ulid::Ulid::new().to_string(),
@@ -106,6 +346,7 @@ fn revision_task(problem: &DsaProblem, day: NaiveDate, tz: Tz, now: DateTime<Utc
         project_id: None,
         goal_id: None,
         dsa_problem_id: Some(problem.id.clone()),
+        recurrence_rule: None,
         tags: vec!["!revise".into()],
         carried_count: 0,
         created_at: now,
@@ -146,6 +387,7 @@ fn study_tasks(deadline: &Deadline, today: NaiveDate, tz: Tz, now: DateTime<Utc>
                 project_id: None,
                 goal_id: None,
                 dsa_problem_id: None,
+                recurrence_rule: None,
                 tags: vec!["!study".into()],
                 carried_count: 0,
                 created_at: now,
@@ -186,6 +428,7 @@ impl Core {
             M::up(include_str!("schema.sql")),
             M::up(include_str!("schema_v2.sql")),
             M::up(include_str!("schema_v3.sql")),
+            M::up(include_str!("schema_v4.sql")),
         ])
         .to_latest(&mut conn)?;
         Ok(Self { conn })
@@ -309,6 +552,34 @@ impl Core {
     fn deadline(&self, id: &str) -> Result<Deadline> {
         self.load_one("SELECT data FROM deadlines WHERE id=?1", id, "Deadline")
     }
+    pub fn focus_sessions(&self) -> Result<Vec<FocusSession>> {
+        self.load_entities(
+            "SELECT data FROM focus_sessions WHERE deleted=0 ORDER BY json_extract(data,'$.started_at') DESC",
+        )
+    }
+    pub fn habits(&self) -> Result<Vec<Habit>> {
+        self.load_entities(
+            "SELECT data FROM habits WHERE deleted=0 ORDER BY json_extract(data,'$.created_at')",
+        )
+    }
+    pub fn habit_logs(&self) -> Result<Vec<HabitLog>> {
+        self.load_entities("SELECT data FROM habit_logs ORDER BY json_extract(data,'$.day')")
+    }
+    pub fn daily_reviews(&self) -> Result<Vec<DailyReview>> {
+        self.load_entities(
+            "SELECT data FROM daily_reviews WHERE deleted=0 ORDER BY json_extract(data,'$.day') DESC",
+        )
+    }
+    fn focus_session(&self, id: &str) -> Result<FocusSession> {
+        self.load_one(
+            "SELECT data FROM focus_sessions WHERE id=?1",
+            id,
+            "Focus session",
+        )
+    }
+    fn habit(&self, id: &str) -> Result<Habit> {
+        self.load_one("SELECT data FROM habits WHERE id=?1", id, "Habit")
+    }
     fn project(&self, id: &str) -> Result<Project> {
         self.load_one("SELECT data FROM projects WHERE id=?1", id, "Project")
     }
@@ -373,6 +644,18 @@ impl Core {
                 let subjects = self.subjects()?;
                 let syllabus_items = self.syllabus_items()?;
                 let deadlines = self.deadlines()?;
+                let mut focus_sessions = self.focus_sessions()?;
+                let active_focus = focus_sessions
+                    .iter()
+                    .find(|session| session.ended_at.is_none())
+                    .cloned();
+                focus_sessions.truncate(50);
+                let habits = self.habits()?;
+                let habit_logs = self.habit_logs()?;
+                let habit_streaks = habit_streaks(&habits, &habit_logs, today);
+                let mut daily_reviews = self.daily_reviews()?;
+                daily_reviews.truncate(30);
+                let weekly_stats = weekly_stats(&all, &focus_sessions, today, tz);
                 let mut topics: std::collections::BTreeMap<String, (usize, usize, u32)> =
                     std::collections::BTreeMap::new();
                 for problem in &dsa_problems {
@@ -409,7 +692,7 @@ impl Core {
                         }
                     })
                     .collect();
-                Ok(Response::Snapshot(Snapshot {
+                Ok(Response::Snapshot(Box::new(Snapshot {
                     capacity: planner::capacity(&all, today, &settings),
                     tasks,
                     settings,
@@ -425,7 +708,13 @@ impl Core {
                     subjects,
                     syllabus_items,
                     deadlines,
-                }))
+                    focus_sessions,
+                    active_focus,
+                    habits,
+                    habit_streaks,
+                    daily_reviews,
+                    weekly_stats,
+                })))
             }
             Command::ParseQuickAdd { text } => Ok(Response::Parsed(parser::parse(&text, now, tz)?)),
             Command::CreateTask { text, parent_id } => {
@@ -456,6 +745,7 @@ impl Core {
                     project_id: None,
                     goal_id: None,
                     dsa_problem_id: None,
+                    recurrence_rule: p.recurrence,
                     tags: p.tags,
                     carried_count: 0,
                     created_at: now,
@@ -511,6 +801,7 @@ impl Core {
                 task.parent_id = edit.parent_id;
                 task.project_id = edit.project_id;
                 task.goal_id = edit.goal_id;
+                task.recurrence_rule = normalize_recurrence(edit.recurrence_rule.as_deref())?;
                 task.planned_day = edit.planned_day;
                 task.due_at = edit
                     .due_local
@@ -559,7 +850,15 @@ impl Core {
                     Status::Inbox
                 };
                 task.completed_at = completed.then_some(now);
-                self.save(Some(&before), &task, actor, "complete_task", now)?;
+                let next = if completed && before.status != Status::Done {
+                    before
+                        .recurrence_rule
+                        .as_deref()
+                        .and_then(|rule| recurring_task(&before, rule, today, tz, now))
+                } else {
+                    None
+                };
+                self.save_completion(Some(&before), &task, next.as_ref(), actor, now)?;
                 Ok(Response::Task(task))
             }
             Command::DeleteTask { id, dry_run } => {
@@ -835,6 +1134,7 @@ impl Core {
                     project_id: template.project_id.clone(),
                     goal_id: None,
                     dsa_problem_id: None,
+                    recurrence_rule: None,
                     tags: template.tags.clone(),
                     carried_count: 0,
                     created_at: now,
@@ -893,6 +1193,7 @@ impl Core {
                     project_id,
                     goal_id: None,
                     dsa_problem_id: None,
+                    recurrence_rule: None,
                     tags: vec!["!issue".into()],
                     carried_count: 0,
                     created_at: now,
@@ -1115,6 +1416,134 @@ impl Core {
                 deadline.deleted_at = Some(now);
                 self.save_deadline(Some(&before), &deadline, &[], actor, "delete_deadline", now)?;
                 Ok(Response::Deadline(deadline))
+            }
+            Command::StartFocus {
+                task_id,
+                planned_min,
+                kind,
+            } => {
+                if !(1..=1440).contains(&planned_min) {
+                    return Err(Error::Validation(
+                        "Planned minutes must be between 1 and 1440".into(),
+                    ));
+                }
+                if let Some(id) = &task_id {
+                    Self::ensure_live(&self.task(id)?)?;
+                }
+                if self.focus_sessions()?.iter().any(|s| s.ended_at.is_none()) {
+                    return Err(Error::Validation(
+                        "Stop the open focus session first".into(),
+                    ));
+                }
+                let session = FocusSession {
+                    id: ulid::Ulid::new().to_string(),
+                    task_id,
+                    started_at: now,
+                    ended_at: None,
+                    planned_min,
+                    kind,
+                    created_at: now,
+                    deleted_at: None,
+                };
+                self.save_focus(None, &session, actor, "start_focus", now)?;
+                Ok(Response::Focus(session))
+            }
+            Command::StopFocus { id } => {
+                let before = self.focus_session(&id)?;
+                ensure_live_entity(before.deleted_at, "focus session")?;
+                if before.ended_at.is_some() {
+                    return Err(Error::Validation(
+                        "This focus session is already closed".into(),
+                    ));
+                }
+                let mut session = before.clone();
+                session.ended_at = Some(now);
+                let mut task_update = None;
+                if session.kind == FocusKind::Focus {
+                    if let Some(task_id) = &session.task_id {
+                        let task_before = self.task(task_id)?;
+                        if task_before.deleted_at.is_none() {
+                            let minutes =
+                                ((now - session.started_at).num_seconds().max(0) / 60) as u32;
+                            if minutes > 0 {
+                                let mut task_after = task_before.clone();
+                                task_after.actual_min =
+                                    task_after.actual_min.saturating_add(minutes).min(1_000_000);
+                                task_update = Some((task_before, task_after));
+                            }
+                        }
+                    }
+                }
+                self.save_focus_stop(&before, &session, task_update.as_ref(), actor, now)?;
+                Ok(Response::Focus(session))
+            }
+            Command::CreateHabit { name, cadence_days } => {
+                if !(1..=30).contains(&cadence_days) {
+                    return Err(Error::Validation(
+                        "Cadence must be between 1 and 30 days".into(),
+                    ));
+                }
+                let habit = Habit {
+                    id: ulid::Ulid::new().to_string(),
+                    name: validate_text(&name, 200, "habit name")?,
+                    cadence_days,
+                    created_at: now,
+                    deleted_at: None,
+                };
+                self.save_habit(None, &habit, actor, "create_habit", now)?;
+                Ok(Response::Habit(habit))
+            }
+            Command::LogHabit { habit_id, day } => {
+                let habit = self.habit(&habit_id)?;
+                ensure_live_entity(habit.deleted_at, "habit")?;
+                let day = day.unwrap_or_else(|| now.with_timezone(&tz).date_naive());
+                if self
+                    .habit_logs()?
+                    .iter()
+                    .any(|log| log.habit_id == habit_id && log.day == day)
+                {
+                    return Err(Error::Validation(
+                        "This habit is already logged for that day".into(),
+                    ));
+                }
+                let log = HabitLog {
+                    id: ulid::Ulid::new().to_string(),
+                    habit_id,
+                    day,
+                    created_at: now,
+                };
+                self.save_habit_log(&log, actor, now)?;
+                Ok(Response::HabitLog(log))
+            }
+            Command::DeleteHabit { id } => {
+                let before = self.habit(&id)?;
+                ensure_live_entity(before.deleted_at, "habit")?;
+                let mut habit = before.clone();
+                habit.deleted_at = Some(now);
+                self.save_habit(Some(&before), &habit, actor, "delete_habit", now)?;
+                Ok(Response::Habit(habit))
+            }
+            Command::SaveDailyReview { day, note } => {
+                let day = day.unwrap_or_else(|| now.with_timezone(&tz).date_naive());
+                if day > today {
+                    return Err(Error::Validation("You cannot review a future day".into()));
+                }
+                let note = validate_note(note)?;
+                let existing = self
+                    .daily_reviews()?
+                    .into_iter()
+                    .find(|review| review.day == day);
+                let before = existing.clone();
+                let mut review = existing.unwrap_or_else(|| DailyReview {
+                    id: ulid::Ulid::new().to_string(),
+                    day,
+                    note: String::new(),
+                    created_at: now,
+                    deleted_at: None,
+                });
+                review.note = note;
+                self.save_review(before.as_ref(), &review, actor, "save_review", now)?;
+                Ok(Response::Review(review))
             }
         }
     }
@@ -1498,6 +1927,170 @@ impl Core {
         tx.commit()?;
         Ok(())
     }
+    fn save_completion(
+        &mut self,
+        before: Option<&Task>,
+        task: &Task,
+        next: Option<&Task>,
+        actor: Actor,
+        now: DateTime<Utc>,
+    ) -> Result<()> {
+        let tx = self.conn.transaction()?;
+        Self::persist(&tx, task)?;
+        Self::event(
+            &tx,
+            actor,
+            "task",
+            "complete_task",
+            &task.id,
+            before,
+            Some(task),
+            now,
+        )?;
+        if let Some(next) = next {
+            Self::persist(&tx, next)?;
+            Self::event(
+                &tx,
+                actor,
+                "task",
+                "create_task",
+                &next.id,
+                None::<&Task>,
+                Some(next),
+                now,
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+    fn persist_focus(tx: &Transaction<'_>, session: &FocusSession) -> Result<()> {
+        tx.execute("INSERT INTO focus_sessions(id,data,deleted) VALUES(?1,?2,?3) ON CONFLICT(id) DO UPDATE SET data=excluded.data,deleted=excluded.deleted", params![session.id,serde_json::to_string(session)?,session.deleted_at.is_some()])?;
+        Ok(())
+    }
+    fn save_focus(
+        &mut self,
+        before: Option<&FocusSession>,
+        session: &FocusSession,
+        actor: Actor,
+        action: &str,
+        now: DateTime<Utc>,
+    ) -> Result<()> {
+        let tx = self.conn.transaction()?;
+        Self::persist_focus(&tx, session)?;
+        Self::event(
+            &tx,
+            actor,
+            "focus_session",
+            action,
+            &session.id,
+            before,
+            Some(session),
+            now,
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+    fn save_focus_stop(
+        &mut self,
+        before: &FocusSession,
+        after: &FocusSession,
+        task: Option<&(Task, Task)>,
+        actor: Actor,
+        now: DateTime<Utc>,
+    ) -> Result<()> {
+        let tx = self.conn.transaction()?;
+        Self::persist_focus(&tx, after)?;
+        Self::event(
+            &tx,
+            actor,
+            "focus_session",
+            "stop_focus",
+            &after.id,
+            Some(before),
+            Some(after),
+            now,
+        )?;
+        if let Some((task_before, task_after)) = task {
+            Self::persist(&tx, task_after)?;
+            Self::event(
+                &tx,
+                actor,
+                "task",
+                "update_task",
+                &task_after.id,
+                Some(task_before),
+                Some(task_after),
+                now,
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+    fn save_habit(
+        &mut self,
+        before: Option<&Habit>,
+        habit: &Habit,
+        actor: Actor,
+        action: &str,
+        now: DateTime<Utc>,
+    ) -> Result<()> {
+        let tx = self.conn.transaction()?;
+        tx.execute("INSERT INTO habits(id,data,deleted) VALUES(?1,?2,?3) ON CONFLICT(id) DO UPDATE SET data=excluded.data,deleted=excluded.deleted", params![habit.id,serde_json::to_string(habit)?,habit.deleted_at.is_some()])?;
+        Self::event(
+            &tx,
+            actor,
+            "habit",
+            action,
+            &habit.id,
+            before,
+            Some(habit),
+            now,
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+    fn save_habit_log(&mut self, log: &HabitLog, actor: Actor, now: DateTime<Utc>) -> Result<()> {
+        let tx = self.conn.transaction()?;
+        tx.execute(
+            "INSERT INTO habit_logs(id,data) VALUES(?1,?2)",
+            params![log.id, serde_json::to_string(log)?],
+        )?;
+        Self::event(
+            &tx,
+            actor,
+            "habit_log",
+            "log_habit",
+            &log.id,
+            None::<&HabitLog>,
+            Some(log),
+            now,
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+    fn save_review(
+        &mut self,
+        before: Option<&DailyReview>,
+        review: &DailyReview,
+        actor: Actor,
+        action: &str,
+        now: DateTime<Utc>,
+    ) -> Result<()> {
+        let tx = self.conn.transaction()?;
+        tx.execute("INSERT INTO daily_reviews(id,data,deleted) VALUES(?1,?2,?3) ON CONFLICT(id) DO UPDATE SET data=excluded.data,deleted=excluded.deleted", params![review.id,serde_json::to_string(review)?,review.deleted_at.is_some()])?;
+        Self::event(
+            &tx,
+            actor,
+            "daily_review",
+            action,
+            &review.id,
+            before,
+            Some(review),
+            now,
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
     pub fn next_reminder(&self) -> Result<Option<(Task, DateTime<Utc>)>> {
         Ok(self
             .tasks()?
@@ -1525,6 +2118,386 @@ impl Core {
     }
     pub fn checkpoint(&self) -> Result<()> {
         self.conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)")?;
+        Ok(())
+    }
+    fn load_all_rows<T: DeserializeOwned>(&self, table: &str) -> Result<Vec<T>> {
+        self.load_entities(&format!("SELECT data FROM {table}"))
+    }
+    pub fn export_bundle(&self) -> Result<ExportBundle> {
+        Ok(ExportBundle {
+            format: "daybridge-export".into(),
+            version: 1,
+            exported_at: Utc::now(),
+            tasks: self.load_all_rows("tasks")?,
+            projects: self.load_all_rows("projects")?,
+            goals: self.load_all_rows("goals")?,
+            templates: self.load_all_rows("templates")?,
+            saved_filters: self.load_entities("SELECT data FROM saved_filters")?,
+            dsa_problems: self.load_all_rows("dsa_problems")?,
+            subjects: self.load_all_rows("subjects")?,
+            syllabus_items: self.load_all_rows("syllabus_items")?,
+            deadlines: self.load_all_rows("deadlines")?,
+            habits: self.load_all_rows("habits")?,
+            habit_logs: self.load_entities("SELECT data FROM habit_logs")?,
+            focus_sessions: self.load_all_rows("focus_sessions")?,
+            daily_reviews: self.load_all_rows("daily_reviews")?,
+        })
+    }
+    pub fn export_json(&self) -> Result<String> {
+        Ok(serde_json::to_string_pretty(&self.export_bundle()?)?)
+    }
+    pub fn export_markdown(&self) -> Result<String> {
+        let mut out = format!(
+            "# Daybridge export\n\nGenerated {}\n\n## Tasks\n\n",
+            Utc::now().to_rfc3339()
+        );
+        for task in self.tasks()? {
+            let mark = if task.status == Status::Done {
+                "x"
+            } else {
+                " "
+            };
+            out.push_str(&format!(
+                "- [{}] {} ({:?}, {}m)\n",
+                mark, task.title, task.status, task.est_min
+            ));
+        }
+        let projects = self.projects()?;
+        if !projects.is_empty() {
+            out.push_str("\n## Projects\n\n");
+            for project in projects {
+                out.push_str(&format!(
+                    "- {} ({:?}, {:?})\n",
+                    project.name, project.kind, project.status
+                ));
+            }
+        }
+        let goals = self.goals()?;
+        if !goals.is_empty() {
+            out.push_str("\n## Goals\n\n");
+            for goal in goals {
+                out.push_str(&format!("- {} ({:?})\n", goal.title, goal.horizon));
+            }
+        }
+        let problems = self.dsa_problems()?;
+        if !problems.is_empty() {
+            out.push_str("\n## DSA\n\n");
+            for problem in problems {
+                out.push_str(&format!(
+                    "- {} — {} ({:?}), confidence {}\n",
+                    problem.title, problem.topic, problem.difficulty, problem.confidence
+                ));
+            }
+        }
+        let subjects = self.subjects()?;
+        if !subjects.is_empty() {
+            out.push_str("\n## Subjects\n\n");
+            for subject in subjects {
+                out.push_str(&format!("- {}\n", subject.name));
+            }
+        }
+        let habits = self.habits()?;
+        if !habits.is_empty() {
+            out.push_str("\n## Habits\n\n");
+            for habit in habits {
+                out.push_str(&format!(
+                    "- {} (every {} days)\n",
+                    habit.name, habit.cadence_days
+                ));
+            }
+        }
+        Ok(out)
+    }
+    fn row_exists(tx: &Transaction<'_>, table: &str, id: &str) -> Result<bool> {
+        Ok(tx.query_row(
+            &format!("SELECT EXISTS(SELECT 1 FROM {table} WHERE id=?1)"),
+            [id],
+            |row| row.get(0),
+        )?)
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn insert_missing<T: serde::Serialize>(
+        tx: &Transaction<'_>,
+        table: &str,
+        id: &str,
+        value: &T,
+        deleted: Option<bool>,
+        actor: Actor,
+        entity: &str,
+        now: DateTime<Utc>,
+    ) -> Result<bool> {
+        if Self::row_exists(tx, table, id)? {
+            return Ok(false);
+        }
+        match deleted {
+            Some(deleted) => {
+                tx.execute(
+                    &format!("INSERT INTO {table}(id,data,deleted) VALUES(?1,?2,?3)"),
+                    params![id, serde_json::to_string(value)?, deleted],
+                )?;
+            }
+            None => {
+                if table == "saved_filters" {
+                    let created = serde_json::to_value(value)?["created_at"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .to_string();
+                    tx.execute(
+                        "INSERT INTO saved_filters(id,data,created_at) VALUES(?1,?2,?3)",
+                        params![id, serde_json::to_string(value)?, created],
+                    )?;
+                } else {
+                    tx.execute(
+                        &format!("INSERT INTO {table}(id,data) VALUES(?1,?2)"),
+                        params![id, serde_json::to_string(value)?],
+                    )?;
+                }
+            }
+        }
+        Self::event(
+            tx,
+            actor,
+            entity,
+            "import",
+            id,
+            None::<&T>,
+            Some(value),
+            now,
+        )?;
+        Ok(true)
+    }
+    pub fn import_json(
+        &mut self,
+        raw: &str,
+        actor: Actor,
+        now: DateTime<Utc>,
+    ) -> Result<ImportSummary> {
+        let bundle: ExportBundle = serde_json::from_str(raw)?;
+        if bundle.format != "daybridge-export" {
+            return Err(Error::Validation(
+                "This file is not a Daybridge JSON export".into(),
+            ));
+        }
+        if bundle.version != 1 {
+            return Err(Error::Validation("Unsupported export version".into()));
+        }
+        let tx = self.conn.transaction()?;
+        let mut summary = ImportSummary::default();
+        for task in &bundle.tasks {
+            if Self::row_exists(&tx, "tasks", &task.id)? {
+                summary.skipped += 1;
+                continue;
+            }
+            Self::persist(&tx, task)?;
+            Self::event(
+                &tx,
+                actor,
+                "task",
+                "import",
+                &task.id,
+                None::<&Task>,
+                Some(task),
+                now,
+            )?;
+            summary.tasks += 1;
+        }
+        for project in &bundle.projects {
+            if Self::insert_missing(
+                &tx,
+                "projects",
+                &project.id,
+                project,
+                Some(project.deleted_at.is_some()),
+                actor,
+                "project",
+                now,
+            )? {
+                summary.projects += 1;
+            } else {
+                summary.skipped += 1;
+            }
+        }
+        for goal in &bundle.goals {
+            if Self::insert_missing(
+                &tx,
+                "goals",
+                &goal.id,
+                goal,
+                Some(goal.deleted_at.is_some()),
+                actor,
+                "goal",
+                now,
+            )? {
+                summary.goals += 1;
+            } else {
+                summary.skipped += 1;
+            }
+        }
+        for template in &bundle.templates {
+            if Self::insert_missing(
+                &tx,
+                "templates",
+                &template.id,
+                template,
+                Some(template.deleted_at.is_some()),
+                actor,
+                "template",
+                now,
+            )? {
+                summary.templates += 1;
+            } else {
+                summary.skipped += 1;
+            }
+        }
+        for filter in &bundle.saved_filters {
+            if Self::insert_missing(
+                &tx,
+                "saved_filters",
+                &filter.id,
+                filter,
+                None,
+                actor,
+                "filter",
+                now,
+            )? {
+                summary.saved_filters += 1;
+            } else {
+                summary.skipped += 1;
+            }
+        }
+        for problem in &bundle.dsa_problems {
+            if Self::insert_missing(
+                &tx,
+                "dsa_problems",
+                &problem.id,
+                problem,
+                Some(problem.deleted_at.is_some()),
+                actor,
+                "dsa_problem",
+                now,
+            )? {
+                summary.dsa_problems += 1;
+            } else {
+                summary.skipped += 1;
+            }
+        }
+        for subject in &bundle.subjects {
+            if Self::insert_missing(
+                &tx,
+                "subjects",
+                &subject.id,
+                subject,
+                Some(subject.deleted_at.is_some()),
+                actor,
+                "subject",
+                now,
+            )? {
+                summary.subjects += 1;
+            } else {
+                summary.skipped += 1;
+            }
+        }
+        for item in &bundle.syllabus_items {
+            if Self::insert_missing(
+                &tx,
+                "syllabus_items",
+                &item.id,
+                item,
+                Some(item.deleted_at.is_some()),
+                actor,
+                "syllabus_item",
+                now,
+            )? {
+                summary.syllabus_items += 1;
+            } else {
+                summary.skipped += 1;
+            }
+        }
+        for deadline in &bundle.deadlines {
+            if Self::insert_missing(
+                &tx,
+                "deadlines",
+                &deadline.id,
+                deadline,
+                Some(deadline.deleted_at.is_some()),
+                actor,
+                "deadline",
+                now,
+            )? {
+                summary.deadlines += 1;
+            } else {
+                summary.skipped += 1;
+            }
+        }
+        for habit in &bundle.habits {
+            if Self::insert_missing(
+                &tx,
+                "habits",
+                &habit.id,
+                habit,
+                Some(habit.deleted_at.is_some()),
+                actor,
+                "habit",
+                now,
+            )? {
+                summary.habits += 1;
+            } else {
+                summary.skipped += 1;
+            }
+        }
+        for log in &bundle.habit_logs {
+            if Self::insert_missing(
+                &tx,
+                "habit_logs",
+                &log.id,
+                log,
+                None,
+                actor,
+                "habit_log",
+                now,
+            )? {
+                summary.habit_logs += 1;
+            } else {
+                summary.skipped += 1;
+            }
+        }
+        for session in &bundle.focus_sessions {
+            if Self::insert_missing(
+                &tx,
+                "focus_sessions",
+                &session.id,
+                session,
+                Some(session.deleted_at.is_some()),
+                actor,
+                "focus_session",
+                now,
+            )? {
+                summary.focus_sessions += 1;
+            } else {
+                summary.skipped += 1;
+            }
+        }
+        for review in &bundle.daily_reviews {
+            if Self::insert_missing(
+                &tx,
+                "daily_reviews",
+                &review.id,
+                review,
+                Some(review.deleted_at.is_some()),
+                actor,
+                "daily_review",
+                now,
+            )? {
+                summary.daily_reviews += 1;
+            } else {
+                summary.skipped += 1;
+            }
+        }
+        tx.commit()?;
+        Ok(summary)
+    }
+    pub fn backup_to(&self, path: impl AsRef<Path>) -> Result<()> {
+        self.conn.backup("main", path, None)?;
         Ok(())
     }
 }

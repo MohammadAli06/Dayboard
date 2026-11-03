@@ -1096,6 +1096,182 @@
         "command",
         "input"
       ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string",
+          "const": "start_focus"
+        },
+        "input": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "$ref": "#/$defs/FocusKind"
+            },
+            "planned_min": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
+            "task_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "planned_min",
+            "kind"
+          ]
+        }
+      },
+      "required": [
+        "command",
+        "input"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string",
+          "const": "stop_focus"
+        },
+        "input": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ]
+        }
+      },
+      "required": [
+        "command",
+        "input"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string",
+          "const": "create_habit"
+        },
+        "input": {
+          "type": "object",
+          "properties": {
+            "cadence_days": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "cadence_days"
+          ]
+        }
+      },
+      "required": [
+        "command",
+        "input"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string",
+          "const": "log_habit"
+        },
+        "input": {
+          "type": "object",
+          "properties": {
+            "day": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "date"
+            },
+            "habit_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "habit_id"
+          ]
+        }
+      },
+      "required": [
+        "command",
+        "input"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string",
+          "const": "delete_habit"
+        },
+        "input": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ]
+        }
+      },
+      "required": [
+        "command",
+        "input"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string",
+          "const": "save_daily_review"
+        },
+        "input": {
+          "type": "object",
+          "properties": {
+            "day": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "date"
+            },
+            "note": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "note"
+          ]
+        }
+      },
+      "required": [
+        "command",
+        "input"
+      ]
     }
   ],
   "$defs": {
@@ -1112,6 +1288,13 @@
       "enum": [
         "low",
         "high"
+      ]
+    },
+    "FocusKind": {
+      "type": "string",
+      "enum": [
+        "focus",
+        "break"
       ]
     },
     "GoalHorizon": {
@@ -1239,6 +1422,13 @@
           "minimum": 0
         },
         "project_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "recurrence_rule": {
           "type": [
             "string",
             "null"

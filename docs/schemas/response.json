@@ -228,6 +228,70 @@
         "type",
         "data"
       ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/FocusSession"
+        },
+        "type": {
+          "type": "string",
+          "const": "focus"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/Habit"
+        },
+        "type": {
+          "type": "string",
+          "const": "habit"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/HabitLog"
+        },
+        "type": {
+          "type": "string",
+          "const": "habit_log"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/DailyReview"
+        },
+        "type": {
+          "type": "string",
+          "const": "review"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ]
     }
   ],
   "$defs": {
@@ -256,6 +320,38 @@
         "minutes",
         "over_count",
         "over_minutes"
+      ]
+    },
+    "DailyReview": {
+      "type": "object",
+      "properties": {
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "day": {
+          "type": "string",
+          "format": "date"
+        },
+        "deleted_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "id": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "day",
+        "note",
+        "created_at"
       ]
     },
     "Deadline": {
@@ -407,6 +503,64 @@
         "high"
       ]
     },
+    "FocusKind": {
+      "type": "string",
+      "enum": [
+        "focus",
+        "break"
+      ]
+    },
+    "FocusSession": {
+      "type": "object",
+      "properties": {
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "deleted_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "ended_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/FocusKind"
+        },
+        "planned_min": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "started_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "task_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "started_at",
+        "planned_min",
+        "kind",
+        "created_at"
+      ]
+    },
     "Goal": {
       "type": "object",
       "properties": {
@@ -479,6 +633,98 @@
         "done"
       ]
     },
+    "Habit": {
+      "type": "object",
+      "properties": {
+        "cadence_days": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "deleted_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "cadence_days",
+        "created_at"
+      ]
+    },
+    "HabitLog": {
+      "type": "object",
+      "properties": {
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "day": {
+          "type": "string",
+          "format": "date"
+        },
+        "habit_id": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "habit_id",
+        "day",
+        "created_at"
+      ]
+    },
+    "HabitStreak": {
+      "type": "object",
+      "properties": {
+        "best": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "current": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "due": {
+          "type": "boolean"
+        },
+        "habit_id": {
+          "type": "string"
+        },
+        "last_done": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        }
+      },
+      "required": [
+        "habit_id",
+        "current",
+        "best",
+        "due"
+      ]
+    },
     "ParsedTask": {
       "type": "object",
       "properties": {
@@ -509,6 +755,12 @@
           "format": "uint8",
           "maximum": 255,
           "minimum": 0
+        },
+        "recurrence": {
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "tags": {
           "type": "array",
@@ -659,8 +911,24 @@
     "Snapshot": {
       "type": "object",
       "properties": {
+        "active_focus": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FocusSession"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "capacity": {
           "$ref": "#/$defs/Capacity"
+        },
+        "daily_reviews": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DailyReview"
+          }
         },
         "deadlines": {
           "type": "array",
@@ -680,6 +948,12 @@
             "$ref": "#/$defs/TopicCoverage"
           }
         },
+        "focus_sessions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FocusSession"
+          }
+        },
         "goal_progress": {
           "type": "array",
           "items": {
@@ -690,6 +964,18 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/Goal"
+          }
+        },
+        "habit_streaks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/HabitStreak"
+          }
+        },
+        "habits": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Habit"
           }
         },
         "projects": {
@@ -740,6 +1026,9 @@
         "today": {
           "type": "string",
           "format": "date"
+        },
+        "weekly_stats": {
+          "$ref": "#/$defs/WeeklyStats"
         }
       },
       "required": [
@@ -757,7 +1046,12 @@
         "dsa_topics",
         "subjects",
         "syllabus_items",
-        "deadlines"
+        "deadlines",
+        "focus_sessions",
+        "habits",
+        "habit_streaks",
+        "daily_reviews",
+        "weekly_stats"
       ]
     },
     "Status": {
@@ -830,6 +1124,29 @@
         "title",
         "done",
         "created_at"
+      ]
+    },
+    "TagStat": {
+      "type": "object",
+      "properties": {
+        "completed": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "focus_minutes": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "tag": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tag",
+        "focus_minutes",
+        "completed"
       ]
     },
     "Task": {
@@ -918,6 +1235,13 @@
           "minimum": 0
         },
         "project_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "recurrence_rule": {
           "type": [
             "string",
             "null"
@@ -1063,6 +1387,60 @@
         "total",
         "solved",
         "average_confidence"
+      ]
+    },
+    "WeeklyStats": {
+      "type": "object",
+      "properties": {
+        "carried": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "completed": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "created": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "estimate_accuracy": {
+          "type": "number",
+          "format": "double"
+        },
+        "focus_minutes": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "measured": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "tag_stats": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TagStat"
+          }
+        },
+        "week_start": {
+          "type": "string",
+          "format": "date"
+        }
+      },
+      "required": [
+        "week_start",
+        "completed",
+        "created",
+        "carried",
+        "focus_minutes",
+        "estimate_accuracy",
+        "measured",
+        "tag_stats"
       ]
     }
   }
