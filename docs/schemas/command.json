@@ -717,9 +717,396 @@
         "command",
         "input"
       ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string",
+          "const": "create_dsa_problem"
+        },
+        "input": {
+          "type": "object",
+          "properties": {
+            "difficulty": {
+              "$ref": "#/$defs/DsaDifficulty"
+            },
+            "notes": {
+              "type": "string"
+            },
+            "platform": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "title": {
+              "type": "string"
+            },
+            "topic": {
+              "type": "string"
+            },
+            "url": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "title",
+            "topic",
+            "difficulty",
+            "notes"
+          ]
+        }
+      },
+      "required": [
+        "command",
+        "input"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string",
+          "const": "update_dsa_problem"
+        },
+        "input": {
+          "type": "object",
+          "properties": {
+            "difficulty": {
+              "$ref": "#/$defs/DsaDifficulty"
+            },
+            "id": {
+              "type": "string"
+            },
+            "notes": {
+              "type": "string"
+            },
+            "platform": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "title": {
+              "type": "string"
+            },
+            "topic": {
+              "type": "string"
+            },
+            "url": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "title",
+            "topic",
+            "difficulty",
+            "notes"
+          ]
+        }
+      },
+      "required": [
+        "command",
+        "input"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string",
+          "const": "solve_dsa_problem"
+        },
+        "input": {
+          "type": "object",
+          "properties": {
+            "confidence": {
+              "type": "integer",
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0
+            },
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "confidence"
+          ]
+        }
+      },
+      "required": [
+        "command",
+        "input"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string",
+          "const": "review_dsa_problem"
+        },
+        "input": {
+          "type": "object",
+          "properties": {
+            "confidence": {
+              "type": "integer",
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0
+            },
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "confidence"
+          ]
+        }
+      },
+      "required": [
+        "command",
+        "input"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string",
+          "const": "delete_dsa_problem"
+        },
+        "input": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ]
+        }
+      },
+      "required": [
+        "command",
+        "input"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string",
+          "const": "create_subject"
+        },
+        "input": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ]
+        }
+      },
+      "required": [
+        "command",
+        "input"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string",
+          "const": "delete_subject"
+        },
+        "input": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ]
+        }
+      },
+      "required": [
+        "command",
+        "input"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string",
+          "const": "add_syllabus_item"
+        },
+        "input": {
+          "type": "object",
+          "properties": {
+            "subject_id": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "subject_id",
+            "title"
+          ]
+        }
+      },
+      "required": [
+        "command",
+        "input"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string",
+          "const": "set_syllabus_item_done"
+        },
+        "input": {
+          "type": "object",
+          "properties": {
+            "done": {
+              "type": "boolean"
+            },
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "done"
+          ]
+        }
+      },
+      "required": [
+        "command",
+        "input"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string",
+          "const": "delete_syllabus_item"
+        },
+        "input": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ]
+        }
+      },
+      "required": [
+        "command",
+        "input"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string",
+          "const": "create_deadline"
+        },
+        "input": {
+          "type": "object",
+          "properties": {
+            "due_date": {
+              "type": "string",
+              "format": "date"
+            },
+            "study_min": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
+            "subject_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "title": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "title",
+            "due_date",
+            "study_min"
+          ]
+        }
+      },
+      "required": [
+        "command",
+        "input"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string",
+          "const": "delete_deadline"
+        },
+        "input": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ]
+        }
+      },
+      "required": [
+        "command",
+        "input"
+      ]
     }
   ],
   "$defs": {
+    "DsaDifficulty": {
+      "type": "string",
+      "enum": [
+        "easy",
+        "medium",
+        "hard"
+      ]
+    },
     "Energy": {
       "type": "string",
       "enum": [

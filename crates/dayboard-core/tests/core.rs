@@ -770,7 +770,11 @@ fn existing_database_gains_phase_three_tables() {
     let tasks = core.tasks().unwrap();
     assert_eq!(tasks.len(), 1);
     assert!(tasks[0].project_id.is_none());
+    assert!(tasks[0].dsa_problem_id.is_none());
     assert!(core.projects().unwrap().is_empty());
+    assert!(core.dsa_problems().unwrap().is_empty());
+    assert!(core.subjects().unwrap().is_empty());
+    assert!(core.deadlines().unwrap().is_empty());
     assert!(core
         .execute(
             Command::CreateProject {
@@ -783,4 +787,305 @@ fn existing_database_gains_phase_three_tables() {
             now(),
         )
         .is_ok());
+}
+fn dsa(core: &mut Core, title: &str, topic: &str) -> DsaProblem {
+    match core
+        .execute(
+            Command::CreateDsaProblem {
+                title: title.into(),
+                url: None,
+                topic: topic.into(),
+                difficulty: DsaDifficulty::Medium,
+                platform: None,
+                notes: String::new(),
+            },
+            Actor::User,
+            now(),
+        )
+        .unwrap()
+    {
+        Response::DsaProblem(p) => p,
+        _ => panic!(),
+    }
+}
+#[test]
+fn dsa_solve_and_review_schedule_revisions() {
+    let mut core = Core::memory().unwrap();
+    let problem = dsa(&mut core, "Two Sum", "arrays");
+    assert_eq!(problem.status, DsaStatus::Todo);
+    let solved = match core
+        .execute(
+            Command::SolveDsaProblem {
+                id: problem.id.clone(),
+                confidence: 3,
+            },
+            Actor::User,
+            now(),
+        )
+        .unwrap()
+    {
+        Response::DsaProblem(p) => p,
+        _ => panic!(),
+    };
+    assert_eq!(solved.status, DsaStatus::Solved);
+    assert_eq!((solved.review_stage, solved.confidence), (1, 3));
+    assert_eq!(solved.next_review_at.unwrap().to_string(), "2026-11-03");
+    let revisions: Vec<_> = core
+        .tasks()
+        .unwrap()
+        .into_iter()
+        .filter(|t| t.dsa_problem_id.as_deref() == Some(problem.id.as_str()))
+        .collect();
+    assert_eq!(revisions.len(), 1);
+    assert_eq!(revisions[0].title, "Revise: Two Sum");
+    assert_eq!(revisions[0].planned_day.unwrap().to_string(), "2026-11-03");
+    assert_eq!(revisions[0].status, Status::Todo);
+    let reviewed = match core
+        .execute(
+            Command::ReviewDsaProblem {
+                id: problem.id.clone(),
+                confidence: 5,
+            },
+            Actor::User,
+            now(),
+        )
+        .unwrap()
+    {
+        Response::DsaProblem(p) => p,
+        _ => panic!(),
+    };
+    assert_eq!(reviewed.review_stage, 2);
+    assert_eq!(reviewed.next_review_at.unwrap().to_string(), "2026-11-12");
+    let all = core.tasks().unwrap();
+    let revisions: Vec<_> = all
+        .iter()
+        .filter(|t| t.dsa_problem_id.as_deref() == Some(problem.id.as_str()))
+        .collect();
+    assert_eq!(revisions.len(), 2);
+    assert_eq!(
+        revisions
+            .iter()
+            .filter(|t| t.status == Status::Done)
+            .count(),
+        1
+    );
+    assert_eq!(revisions.iter().filter(|t| t.status.active()).count(), 1);
+    assert!(core
+        .execute(
+            Command::SolveDsaProblem {
+                id: problem.id.clone(),
+                confidence: 3,
+            },
+            Actor::User,
+            now(),
+        )
+        .is_err());
+    assert!(core
+        .execute(
+            Command::ReviewDsaProblem {
+                id: problem.id,
+                confidence: 9,
+            },
+            Actor::User,
+            now(),
+        )
+        .is_err());
+}
+#[test]
+fn dsa_confidence_adjusts_interval_and_topics_are_derived() {
+    let mut core = Core::memory().unwrap();
+    let easy = dsa(&mut core, "Binary Search", "arrays");
+    let hard = dsa(&mut core, "Course Schedule", "graphs");
+    let low = match core
+        .execute(
+            Command::SolveDsaProblem {
+                id: easy.id.clone(),
+                confidence: 1,
+            },
+            Actor::User,
+            now(),
+        )
+        .unwrap()
+    {
+        Response::DsaProblem(p) => p,
+        _ => panic!(),
+    };
+    assert_eq!(low.next_review_at.unwrap().to_string(), "2026-11-03");
+    let high = match core
+        .execute(
+            Command::SolveDsaProblem {
+                id: hard.id,
+                confidence: 5,
+            },
+            Actor::User,
+            now(),
+        )
+        .unwrap()
+    {
+        Response::DsaProblem(p) => p,
+        _ => panic!(),
+    };
+    assert_eq!(high.next_review_at.unwrap().to_string(), "2026-11-10");
+    dsa(&mut core, "Sliding Window", "arrays");
+    match core
+        .execute(Command::Snapshot { search: None }, Actor::User, now())
+        .unwrap()
+    {
+        Response::Snapshot(s) => {
+            let arrays = s.dsa_topics.iter().find(|t| t.topic == "arrays").unwrap();
+            assert_eq!((arrays.total, arrays.solved), (2, 1));
+            assert_eq!(arrays.average_confidence, 1.0);
+            let graphs = s.dsa_topics.iter().find(|t| t.topic == "graphs").unwrap();
+            assert_eq!((graphs.total, graphs.solved), (1, 1));
+            assert_eq!(graphs.average_confidence, 5.0);
+        }
+        _ => panic!(),
+    }
+}
+#[test]
+fn deadlines_back_schedule_study_tasks() {
+    let mut core = Core::memory().unwrap();
+    let subject = match core
+        .execute(
+            Command::CreateSubject {
+                name: "DBMS".into(),
+            },
+            Actor::User,
+            now(),
+        )
+        .unwrap()
+    {
+        Response::Subject(s) => s,
+        _ => panic!(),
+    };
+    let _deadline = match core
+        .execute(
+            Command::CreateDeadline {
+                subject_id: Some(subject.id.clone()),
+                title: "Midterm".into(),
+                due_date: "2026-11-06".parse().unwrap(),
+                study_min: 120,
+            },
+            Actor::User,
+            now(),
+        )
+        .unwrap()
+    {
+        Response::Deadline(d) => d,
+        _ => panic!(),
+    };
+    let mut days: Vec<_> = core
+        .tasks()
+        .unwrap()
+        .into_iter()
+        .filter(|t| t.title == "Study: Midterm")
+        .map(|t| (t.planned_day.unwrap().to_string(), t.est_min))
+        .collect();
+    days.sort();
+    assert_eq!(
+        days,
+        vec![
+            ("2026-11-02".into(), 30),
+            ("2026-11-03".into(), 30),
+            ("2026-11-04".into(), 30),
+            ("2026-11-05".into(), 30),
+        ]
+    );
+    assert!(days.iter().all(|(day, _)| day.as_str() < "2026-11-06"));
+    core.execute(
+        Command::CreateDeadline {
+            subject_id: None,
+            title: "Quiz".into(),
+            due_date: "2026-11-01".parse().unwrap(),
+            study_min: 45,
+        },
+        Actor::User,
+        now(),
+    )
+    .unwrap();
+    let quiz: Vec<_> = core
+        .tasks()
+        .unwrap()
+        .into_iter()
+        .filter(|t| t.title == "Study: Quiz")
+        .collect();
+    assert_eq!(quiz.len(), 1);
+    assert_eq!(quiz[0].est_min, 45);
+    assert_eq!(quiz[0].planned_day.unwrap().to_string(), "2026-11-02");
+}
+#[test]
+fn subjects_and_syllabus_toggle_and_soft_delete() {
+    let mut core = Core::memory().unwrap();
+    let subject = match core
+        .execute(
+            Command::CreateSubject {
+                name: "Operating Systems".into(),
+            },
+            Actor::User,
+            now(),
+        )
+        .unwrap()
+    {
+        Response::Subject(s) => s,
+        _ => panic!(),
+    };
+    let item = match core
+        .execute(
+            Command::AddSyllabusItem {
+                subject_id: subject.id.clone(),
+                title: "Deadlocks".into(),
+            },
+            Actor::User,
+            now(),
+        )
+        .unwrap()
+    {
+        Response::SyllabusItem(i) => i,
+        _ => panic!(),
+    };
+    core.execute(
+        Command::SetSyllabusItemDone {
+            id: item.id.clone(),
+            done: true,
+        },
+        Actor::User,
+        now(),
+    )
+    .unwrap();
+    match core
+        .execute(Command::Snapshot { search: None }, Actor::User, now())
+        .unwrap()
+    {
+        Response::Snapshot(s) => {
+            assert_eq!(s.subjects.len(), 1);
+            assert_eq!(s.syllabus_items.len(), 1);
+            assert!(s.syllabus_items[0].done);
+        }
+        _ => panic!(),
+    }
+    core.execute(
+        Command::DeleteSubject {
+            id: subject.id.clone(),
+        },
+        Actor::User,
+        now(),
+    )
+    .unwrap();
+    assert!(core
+        .execute(
+            Command::AddSyllabusItem {
+                subject_id: subject.id,
+                title: "Scheduling".into(),
+            },
+            Actor::User,
+            now(),
+        )
+        .is_err());
+    match core
+        .execute(Command::Snapshot { search: None }, Actor::User, now())
+        .unwrap()
+    {
+        Response::Snapshot(s) => assert!(s.subjects.is_empty()),
+        _ => panic!(),
+    }
 }

@@ -39,6 +39,7 @@ const task: Task = {
   parent_id: null,
   project_id: null,
   goal_id: null,
+  dsa_problem_id: null,
   tags: ['#college'],
   carried_count: 0,
   created_at: '2026-11-02T00:00:00Z',
@@ -66,6 +67,11 @@ beforeEach(() => {
     goal_progress: [],
     templates: [],
     saved_filters: [],
+    dsa_problems: [],
+    dsa_topics: [],
+    subjects: [],
+    syllabus_items: [],
+    deadlines: [],
   };
   mocked.invoke.mockImplementation(
     async (_name: string, args: { command: Command }) => {
@@ -262,6 +268,63 @@ describe('desktop task flows', () => {
         command: {
           command: 'import_issue',
           input: { url: 'https://github.com/acme/app/issues/7' },
+        },
+      }),
+    );
+  });
+  it('adds a DSA problem in the Study view', async () => {
+    const user = userEvent.setup();
+    render(App);
+    await screen.findByText('Read a chapter');
+    await user.click(screen.getByRole('button', { name: /Study/ }));
+    await user.type(screen.getByLabelText('DSA problem title'), 'Two Sum');
+    await user.type(screen.getByLabelText('DSA topic'), 'arrays');
+    await user.click(screen.getByRole('button', { name: /Add problem/ }));
+    await waitFor(() =>
+      expect(mocked.invoke).toHaveBeenCalledWith('dispatch', {
+        command: {
+          command: 'create_dsa_problem',
+          input: {
+            title: 'Two Sum',
+            url: null,
+            topic: 'arrays',
+            difficulty: 'medium',
+            platform: null,
+            notes: '',
+          },
+        },
+      }),
+    );
+  });
+  it('logs a solved DSA problem with the chosen confidence', async () => {
+    snapshot.dsa_problems = [
+      {
+        id: '01DSA',
+        title: 'Two Sum',
+        url: null,
+        topic: 'arrays',
+        difficulty: 'easy',
+        platform: null,
+        status: 'todo',
+        confidence: 3,
+        solved_at: null,
+        next_review_at: null,
+        review_stage: 0,
+        notes: '',
+        created_at: '2026-11-02T00:00:00Z',
+        deleted_at: null,
+      },
+    ];
+    const user = userEvent.setup();
+    render(App);
+    await screen.findByText('Read a chapter');
+    await user.click(screen.getByRole('button', { name: /Study/ }));
+    await user.click(screen.getByRole('button', { name: 'Log solved' }));
+    await waitFor(() =>
+      expect(mocked.invoke).toHaveBeenCalledWith('dispatch', {
+        command: {
+          command: 'solve_dsa_problem',
+          input: { id: '01DSA', confidence: 3 },
         },
       }),
     );

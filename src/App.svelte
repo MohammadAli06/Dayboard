@@ -11,12 +11,15 @@
     type TaskEdit,
     type Settings,
     type Command,
+    type DsaDifficulty,
+    type DsaProblem,
     type Goal,
     type GoalHorizon,
     type Project,
     type ProjectKind,
     type SavedFilter,
     type Status,
+    type SyllabusItem,
   } from './lib/api';
   import { localInput, addDays } from './lib/dates';
   const capture = new URLSearchParams(location.search).has('capture');
@@ -55,7 +58,19 @@
     target_date: '',
     note: '',
   });
-  const views = ['Today', 'Inbox', 'Planner', 'Projects', 'Completed'];
+  let dsaDraft = $state({
+    title: '',
+    topic: '',
+    difficulty: 'medium' as DsaDifficulty,
+    url: '',
+    platform: '',
+  });
+  let dsaConfidence = $state(3);
+  let subjectDraft = $state('');
+  let selectedSubjectId = $state<string | null>(null);
+  let syllabusDraft = $state('');
+  let deadlineDraft = $state({ title: '', due_date: '', study_min: 60 });
+  const views = ['Today', 'Inbox', 'Planner', 'Projects', 'Study', 'Completed'];
   const boardColumns: { label: string; statuses: Status[] }[] = [
     { label: 'Backlog', statuses: ['inbox', 'todo'] },
     { label: 'Doing', statuses: ['doing'] },
@@ -86,6 +101,22 @@
     projectId
       ? (snapshot?.tasks ?? []).filter((task) => task.project_id === projectId)
       : [],
+  );
+  let dsaProblems = $derived(snapshot?.dsa_problems ?? []);
+  let dsaTopics = $derived(snapshot?.dsa_topics ?? []);
+  let subjects = $derived(snapshot?.subjects ?? []);
+  let selectedSubject = $derived(
+    subjects.find((subject) => subject.id === selectedSubjectId) ?? null,
+  );
+  let subjectSyllabus = $derived(
+    (snapshot?.syllabus_items ?? []).filter(
+      (item) => item.subject_id === selectedSubjectId,
+    ),
+  );
+  let subjectDeadlines = $derived(
+    (snapshot?.deadlines ?? []).filter(
+      (deadline) => deadline.subject_id === selectedSubjectId,
+    ),
   );
   let days = $derived(
     snapshot
@@ -363,6 +394,104 @@
   async function removeFilter(id: string) {
     await run({ command: 'delete_filter', input: { id } });
   }
+  function daysUntil(day: string) {
+    if (!snapshot) return 0;
+    return Math.round(
+      (new Date(`${day}T12:00:00Z`).getTime() -
+        new Date(`${snapshot.today}T12:00:00Z`).getTime()) /
+        86_400_000,
+    );
+  }
+  function subjectProgress(id: string) {
+    const items = (snapshot?.syllabus_items ?? []).filter(
+      (item) => item.subject_id === id,
+    );
+    return {
+      done: items.filter((item) => item.done).length,
+      total: items.length,
+    };
+  }
+  async function addDsaProblem() {
+    if (!dsaDraft.title.trim() || !dsaDraft.topic.trim()) return;
+    const result = await run({
+      command: 'create_dsa_problem',
+      input: {
+        title: dsaDraft.title,
+        url: dsaDraft.url.trim() || null,
+        topic: dsaDraft.topic,
+        difficulty: dsaDraft.difficulty,
+        platform: dsaDraft.platform.trim() || null,
+        notes: '',
+      },
+    });
+    if (result)
+      dsaDraft = {
+        title: '',
+        topic: '',
+        difficulty: 'medium',
+        url: '',
+        platform: '',
+      };
+  }
+  async function logDsaProblem(problem: DsaProblem) {
+    const command =
+      problem.status === 'solved' ? 'review_dsa_problem' : 'solve_dsa_problem';
+    await run({ command, input: { id: problem.id, confidence: dsaConfidence } });
+  }
+  async function removeDsaProblem(id: string) {
+    await run({ command: 'delete_dsa_problem', input: { id } });
+  }
+  async function addSubject() {
+    if (!subjectDraft.trim()) return;
+    const result = await run({
+      command: 'create_subject',
+      input: { name: subjectDraft },
+    });
+    if (result?.type === 'subject') {
+      selectedSubjectId = result.data.id;
+      subjectDraft = '';
+    }
+  }
+  async function removeSubject(id: string) {
+    const result = await run({ command: 'delete_subject', input: { id } });
+    if (result) selectedSubjectId = null;
+  }
+  async function addSyllabusItem() {
+    if (!selectedSubjectId || !syllabusDraft.trim()) return;
+    const result = await run({
+      command: 'add_syllabus_item',
+      input: { subject_id: selectedSubjectId, title: syllabusDraft },
+    });
+    if (result) syllabusDraft = '';
+  }
+  async function toggleSyllabusItem(item: SyllabusItem) {
+    await run({
+      command: 'set_syllabus_item_done',
+      input: { id: item.id, done: !item.done },
+    });
+  }
+  async function removeSyllabusItem(id: string) {
+    await run({ command: 'delete_syllabus_item', input: { id } });
+  }
+  async function addDeadline() {
+    if (!deadlineDraft.title.trim() || !deadlineDraft.due_date) return;
+    const result = await run({
+      command: 'create_deadline',
+      input: {
+        subject_id: selectedSubjectId,
+        title: deadlineDraft.title,
+        due_date: deadlineDraft.due_date,
+        study_min: Number(deadlineDraft.study_min) || 60,
+      },
+    });
+    if (result) {
+      notice = 'Study tasks scheduled before the deadline.';
+      deadlineDraft = { title: '', due_date: '', study_min: 60 };
+    }
+  }
+  async function removeDeadline(id: string) {
+    await run({ command: 'delete_deadline', input: { id } });
+  }
   async function openProject(path: string | null) {
     if (!path) return;
     try {
@@ -575,7 +704,7 @@
         {#each views as item, index (item)}<button
             class:active={view === item}
             onclick={() => navigate(item)}
-            ><span class="nav-icon">{['☀', '▣', '▦', '◧', '✓'][index]}</span
+            ><span class="nav-icon">{['☀', '▣', '▦', '◧', '◇', '✓'][index]}</span
             >{item}{#if item === 'Inbox'}<span class="count"
                 >{snapshot?.tasks.filter(
                   (t) =>
@@ -632,7 +761,9 @@
                     ? 'Give your day some shape.'
                     : view === 'Projects'
                       ? 'Build something over time.'
-                      : 'Look at what you’ve done.'}
+                      : view === 'Study'
+                        ? 'Practice deliberately.'
+                        : 'Look at what you’ve done.'}
             </h1>
             <p>
               {view === 'Today'
@@ -643,7 +774,9 @@
                     ? 'Drag a task to a time slot, or schedule it from the task menu.'
                     : view === 'Projects'
                       ? 'Projects, goal progress, templates and saved filters.'
-                      : 'Small steps add up. Reopen a task whenever you need to.'}
+                      : view === 'Study'
+                        ? 'Track problems, review them on time, and stay ahead of deadlines.'
+                        : 'Small steps add up. Reopen a task whenever you need to.'}
             </p>
           </div>
           <div class="day-number">
@@ -652,7 +785,9 @@
                 ? 'PLAN AHEAD'
                 : view === 'Projects'
                   ? 'THE LONG VIEW'
-                  : 'ONE DAY AT A TIME'}</span
+                  : view === 'Study'
+                    ? 'KEEP SHARP'
+                    : 'ONE DAY AT A TIME'}</span
             >
           </div>
         </section>
@@ -1018,6 +1153,249 @@
                 </div>
               {/each}
             </div>
+          </section>
+        {:else if view === 'Study'}
+          <section class="study-view" aria-label="DSA practice and college prep">
+            <div class="panel">
+              <div class="section-title">
+                <h2>DSA problems <span>{dsaProblems.length}</span></h2>
+                <label class="inline"
+                  >Review confidence
+                  <select bind:value={dsaConfidence} aria-label="Review confidence">
+                    {#each [1, 2, 3, 4, 5] as value (value)}<option value={value}
+                        >{value}</option
+                      >{/each}
+                  </select></label
+                >
+              </div>
+              <form
+                onsubmit={(event) => {
+                  event.preventDefault();
+                  void addDsaProblem();
+                }}
+              >
+                <input
+                  bind:value={dsaDraft.title}
+                  aria-label="DSA problem title"
+                  placeholder="Problem title"
+                />
+                <input
+                  bind:value={dsaDraft.topic}
+                  aria-label="DSA topic"
+                  placeholder="Topic (arrays, graphs…)"
+                />
+                <select bind:value={dsaDraft.difficulty} aria-label="DSA difficulty">
+                  <option value="easy">Easy</option>
+                  <option value="medium">Medium</option>
+                  <option value="hard">Hard</option>
+                </select>
+                <input
+                  bind:value={dsaDraft.url}
+                  aria-label="Problem URL"
+                  placeholder="Problem URL (optional)"
+                />
+                <input
+                  bind:value={dsaDraft.platform}
+                  aria-label="Problem platform"
+                  placeholder="Platform"
+                />
+                <button
+                  class="primary"
+                  type="submit"
+                  disabled={busy ||
+                    !native ||
+                    !dsaDraft.title.trim() ||
+                    !dsaDraft.topic.trim()}>Add problem</button
+                >
+              </form>
+              {#if !dsaProblems.length}<p class="muted">
+                  Add a problem, then log it as solved to schedule its first
+                  revision.
+                </p>{/if}
+              {#each dsaProblems as problem (problem.id)}
+                <div class="goal-row">
+                  <div>
+                    <strong>{problem.title}</strong>
+                    <span
+                      >{problem.topic} · {problem.difficulty} · {problem.status ===
+                      'solved'
+                        ? `stage ${problem.review_stage} · next ${problem.next_review_at ?? '—'} · confidence ${problem.confidence}`
+                        : 'not solved'}{problem.url
+                        ? ` · ${problem.url}`
+                        : ''}</span
+                    >
+                  </div>
+                  <button
+                    disabled={busy}
+                    onclick={() => logDsaProblem(problem)}
+                    >{problem.status === 'solved' ? 'Review' : 'Log solved'}</button
+                  ><button
+                    class="danger"
+                    disabled={busy}
+                    onclick={() => removeDsaProblem(problem.id)}
+                    aria-label={`Delete problem ${problem.title}`}>×</button
+                  >
+                </div>
+              {/each}
+            </div>
+            <div class="panel">
+              <div class="section-title">
+                <h2>Topic coverage <span>{dsaTopics.length}</span></h2>
+              </div>
+              {#if !dsaTopics.length}<p class="muted">
+                  Solved topics will appear here.
+                </p>{/if}
+              <div class="topic-grid">
+                {#each dsaTopics as topic (topic.topic)}
+                  <div class="topic-card">
+                    <strong>{topic.topic}</strong>
+                    <span
+                      >{topic.solved}/{topic.total} solved · avg {topic.average_confidence}</span
+                    >
+                    <progress value={topic.solved} max={topic.total || 1}
+                    ></progress>
+                  </div>
+                {/each}
+              </div>
+            </div>
+            <div class="panel">
+              <div class="section-title">
+                <h2>Subjects <span>{subjects.length}</span></h2>
+              </div>
+              <form
+                onsubmit={(event) => {
+                  event.preventDefault();
+                  void addSubject();
+                }}
+              >
+                <input
+                  bind:value={subjectDraft}
+                  aria-label="Subject name"
+                  placeholder="New subject"
+                />
+                <button
+                  type="submit"
+                  disabled={busy || !native || !subjectDraft.trim()}
+                  >Add subject</button
+                >
+              </form>
+              <div class="project-grid">
+                {#each subjects as subject (subject.id)}
+                  {@const progress = subjectProgress(subject.id)}
+                  <button
+                    class="project-card"
+                    class:chosen={selectedSubjectId === subject.id}
+                    onclick={() => (selectedSubjectId = subject.id)}
+                  >
+                    <strong>{subject.name}</strong>
+                    <span>{progress.done}/{progress.total} syllabus items</span>
+                    <progress value={progress.done} max={progress.total || 1}
+                    ></progress>
+                  </button>
+                {/each}
+              </div>
+            </div>
+            {#if selectedSubject}
+              <div class="panel">
+                <div class="section-title">
+                  <h2>{selectedSubject.name}</h2>
+                  <button
+                    class="danger"
+                    disabled={busy}
+                    onclick={() => removeSubject(selectedSubject!.id)}
+                    >Delete subject</button
+                  >
+                </div>
+                <form
+                  onsubmit={(event) => {
+                    event.preventDefault();
+                    void addSyllabusItem();
+                  }}
+                >
+                  <input
+                    bind:value={syllabusDraft}
+                    aria-label="Syllabus item"
+                    placeholder="Syllabus topic"
+                  />
+                  <button
+                    type="submit"
+                    disabled={busy || !syllabusDraft.trim()}>Add item</button
+                  >
+                </form>
+                {#each subjectSyllabus as item (item.id)}
+                  <div class="syllabus-row">
+                    <input
+                      type="checkbox"
+                      checked={item.done}
+                      onchange={() => toggleSyllabusItem(item)}
+                      aria-label={`Toggle ${item.title}`}
+                    />
+                    <span class:done={item.done}>{item.title}</span>
+                    <button
+                      class="danger"
+                      type="button"
+                      disabled={busy}
+                      onclick={() => removeSyllabusItem(item.id)}
+                      aria-label={`Delete ${item.title}`}>×</button
+                    >
+                  </div>
+                {/each}
+                <div class="section-title">
+                  <h2>
+                    Deadlines <span>{subjectDeadlines.length}</span>
+                  </h2>
+                </div>
+                <form
+                  onsubmit={(event) => {
+                    event.preventDefault();
+                    void addDeadline();
+                  }}
+                >
+                  <input
+                    bind:value={deadlineDraft.title}
+                    aria-label="Deadline title"
+                    placeholder="Midterm, submission…"
+                  />
+                  <input
+                    type="date"
+                    bind:value={deadlineDraft.due_date}
+                    aria-label="Deadline date"
+                  />
+                  <input
+                    type="number"
+                    min="1"
+                    max="1440"
+                    bind:value={deadlineDraft.study_min}
+                    aria-label="Study minutes"
+                  />
+                  <button
+                    type="submit"
+                    disabled={busy ||
+                      !deadlineDraft.title.trim() ||
+                      !deadlineDraft.due_date}>Add deadline</button
+                  >
+                </form>
+                {#each subjectDeadlines as deadline (deadline.id)}
+                  <div class="goal-row">
+                    <div>
+                      <strong>{deadline.title}</strong>
+                      <span
+                        >{deadline.due_date} · {Math.max(
+                          0,
+                          daysUntil(deadline.due_date),
+                        )} days · {deadline.study_min} min planned</span
+                      >
+                    </div>
+                    <button
+                      class="danger"
+                      disabled={busy}
+                      onclick={() => removeDeadline(deadline.id)}
+                      aria-label={`Delete deadline ${deadline.title}`}>×</button
+                    >
+                  </div>
+                {/each}
+              </div>
+            {/if}
           </section>
         {:else}
           <div class:planner-layout={view === 'Planner'}>

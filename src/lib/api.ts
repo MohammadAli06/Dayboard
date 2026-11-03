@@ -4,6 +4,8 @@ export type Energy = 'low' | 'high';
 export type ProjectKind = 'coding' | 'college' | 'personal';
 export type ProjectStatus = 'active' | 'paused' | 'archived';
 export type GoalHorizon = 'medium' | 'long';
+export type DsaDifficulty = 'easy' | 'medium' | 'hard';
+export type DsaStatus = 'todo' | 'solved';
 export interface Task {
   id: string;
   title: string;
@@ -20,6 +22,7 @@ export interface Task {
   parent_id: string | null;
   project_id: string | null;
   goal_id: string | null;
+  dsa_problem_id: string | null;
   tags: string[];
   carried_count: number;
   created_at: string;
@@ -71,6 +74,51 @@ export interface SavedFilter {
   query: string;
   created_at: string;
 }
+export interface DsaProblem {
+  id: string;
+  title: string;
+  url: string | null;
+  topic: string;
+  difficulty: DsaDifficulty;
+  platform: string | null;
+  status: DsaStatus;
+  confidence: number;
+  solved_at: string | null;
+  next_review_at: string | null;
+  review_stage: number;
+  notes: string;
+  created_at: string;
+  deleted_at: string | null;
+}
+export interface TopicCoverage {
+  topic: string;
+  total: number;
+  solved: number;
+  average_confidence: number;
+}
+export interface Subject {
+  id: string;
+  name: string;
+  created_at: string;
+  deleted_at: string | null;
+}
+export interface SyllabusItem {
+  id: string;
+  subject_id: string;
+  title: string;
+  done: boolean;
+  created_at: string;
+  deleted_at: string | null;
+}
+export interface Deadline {
+  id: string;
+  subject_id: string | null;
+  title: string;
+  due_date: string;
+  study_min: number;
+  created_at: string;
+  deleted_at: string | null;
+}
 export interface Settings {
   timezone: string;
   max_tasks: number;
@@ -94,6 +142,11 @@ export interface Snapshot {
   goal_progress: GoalProgress[];
   templates: Template[];
   saved_filters: SavedFilter[];
+  dsa_problems: DsaProblem[];
+  dsa_topics: TopicCoverage[];
+  subjects: Subject[];
+  syllabus_items: SyllabusItem[];
+  deadlines: Deadline[];
 }
 export type TaskEdit = Pick<
   Task,
@@ -198,7 +251,60 @@ export type Command =
       command: 'save_filter';
       input: { name: string; view: string; query: string };
     }
-  | { command: 'delete_filter'; input: { id: string } };
+  | { command: 'delete_filter'; input: { id: string } }
+  | {
+      command: 'create_dsa_problem';
+      input: {
+        title: string;
+        url: string | null;
+        topic: string;
+        difficulty: DsaDifficulty;
+        platform: string | null;
+        notes: string;
+      };
+    }
+  | {
+      command: 'update_dsa_problem';
+      input: {
+        id: string;
+        title: string;
+        url: string | null;
+        topic: string;
+        difficulty: DsaDifficulty;
+        platform: string | null;
+        notes: string;
+      };
+    }
+  | {
+      command: 'solve_dsa_problem';
+      input: { id: string; confidence: number };
+    }
+  | {
+      command: 'review_dsa_problem';
+      input: { id: string; confidence: number };
+    }
+  | { command: 'delete_dsa_problem'; input: { id: string } }
+  | { command: 'create_subject'; input: { name: string } }
+  | { command: 'delete_subject'; input: { id: string } }
+  | {
+      command: 'add_syllabus_item';
+      input: { subject_id: string; title: string };
+    }
+  | {
+      command: 'set_syllabus_item_done';
+      input: { id: string; done: boolean };
+    }
+  | { command: 'delete_syllabus_item'; input: { id: string } }
+  | {
+      command: 'create_deadline';
+      input: {
+        subject_id: string | null;
+        title: string;
+        due_date: string;
+        study_min: number;
+      };
+    }
+  | { command: 'delete_deadline'; input: { id: string } };
 export type Response =
   | { type: 'snapshot'; data: Snapshot }
   | { type: 'task'; data: Task }
@@ -208,6 +314,10 @@ export type Response =
   | { type: 'goal'; data: Goal }
   | { type: 'template'; data: Template }
   | { type: 'filter'; data: SavedFilter }
+  | { type: 'dsa_problem'; data: DsaProblem }
+  | { type: 'subject'; data: Subject }
+  | { type: 'syllabus_item'; data: SyllabusItem }
+  | { type: 'deadline'; data: Deadline }
   | { type: 'pong'; data: string };
 export const native = isTauri();
 export async function dispatch(command: Command): Promise<Response> {

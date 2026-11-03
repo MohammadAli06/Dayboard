@@ -958,3 +958,94 @@ progress::-moz-progress-bar {
     grid-template-columns: 1fr;
   }
 }
+/* Phase 4: DSA spaced repetition and college prep */
+.study-view {
+  display: grid;
+  gap: 18px;
+}
+.study-view .panel {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 18px;
+  background: var(--surface);
+}
+.study-view .panel form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.study-view .panel form input,
+.study-view .panel form select {
+  flex: 1 1 140px;
+  min-width: 110px;
+  padding: 8px 9px;
+  font-size: 12px;
+  color: #e8e9eb;
+  background: #141619;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.study-view .panel form button {
+  font-size: 11px;
+}
+.inline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.inline select {
+  padding: 5px 6px;
+  font-size: 11px;
+  color: #e8e9eb;
+  background: #141619;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+.topic-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 10px;
+}
+.topic-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #141619;
+}
+.topic-card strong {
+  font-size: 12px;
+  text-transform: capitalize;
+}
+.topic-card span {
+  color: var(--muted);
+  font-size: 11px;
+}
+.topic-card progress,
+.project-card progress {
+  width: 100%;
+  accent-color: var(--accent);
+}
+.syllabus-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  border-top: 1px solid #23262b;
+  font-size: 12px;
+}
+.syllabus-row input[type='checkbox'] {
+  accent-color: var(--accent);
+}
+.syllabus-row span {
+  flex: 1;
+}
+.syllabus-row span.done {
+  color: var(--muted);
+  text-decoration: line-through;
+}

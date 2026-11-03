@@ -48,6 +48,8 @@ pub struct Task {
     pub project_id: Option<String>,
     #[serde(default)]
     pub goal_id: Option<String>,
+    #[serde(default)]
+    pub dsa_problem_id: Option<String>,
     pub tags: Vec<String>,
     pub carried_count: u32,
     pub created_at: DateTime<Utc>,
@@ -123,6 +125,69 @@ pub struct SavedFilter {
     pub view: String,
     pub query: String,
     pub created_at: DateTime<Utc>,
+}
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DsaDifficulty {
+    Easy,
+    Medium,
+    Hard,
+}
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DsaStatus {
+    Todo,
+    Solved,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct DsaProblem {
+    pub id: String,
+    pub title: String,
+    pub url: Option<String>,
+    pub topic: String,
+    pub difficulty: DsaDifficulty,
+    pub platform: Option<String>,
+    pub status: DsaStatus,
+    pub confidence: u8,
+    pub solved_at: Option<DateTime<Utc>>,
+    pub next_review_at: Option<NaiveDate>,
+    pub review_stage: u8,
+    pub notes: String,
+    pub created_at: DateTime<Utc>,
+    pub deleted_at: Option<DateTime<Utc>>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct TopicCoverage {
+    pub topic: String,
+    pub total: usize,
+    pub solved: usize,
+    pub average_confidence: f64,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct Subject {
+    pub id: String,
+    pub name: String,
+    pub created_at: DateTime<Utc>,
+    pub deleted_at: Option<DateTime<Utc>>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct SyllabusItem {
+    pub id: String,
+    pub subject_id: String,
+    pub title: String,
+    pub done: bool,
+    pub created_at: DateTime<Utc>,
+    pub deleted_at: Option<DateTime<Utc>>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct Deadline {
+    pub id: String,
+    pub subject_id: Option<String>,
+    pub title: String,
+    pub due_date: NaiveDate,
+    pub study_min: u32,
+    pub created_at: DateTime<Utc>,
+    pub deleted_at: Option<DateTime<Utc>>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct Settings {
@@ -274,6 +339,60 @@ pub enum Command {
     DeleteFilter {
         id: String,
     },
+    CreateDsaProblem {
+        title: String,
+        url: Option<String>,
+        topic: String,
+        difficulty: DsaDifficulty,
+        platform: Option<String>,
+        notes: String,
+    },
+    UpdateDsaProblem {
+        id: String,
+        title: String,
+        url: Option<String>,
+        topic: String,
+        difficulty: DsaDifficulty,
+        platform: Option<String>,
+        notes: String,
+    },
+    SolveDsaProblem {
+        id: String,
+        confidence: u8,
+    },
+    ReviewDsaProblem {
+        id: String,
+        confidence: u8,
+    },
+    DeleteDsaProblem {
+        id: String,
+    },
+    CreateSubject {
+        name: String,
+    },
+    DeleteSubject {
+        id: String,
+    },
+    AddSyllabusItem {
+        subject_id: String,
+        title: String,
+    },
+    SetSyllabusItemDone {
+        id: String,
+        done: bool,
+    },
+    DeleteSyllabusItem {
+        id: String,
+    },
+    CreateDeadline {
+        subject_id: Option<String>,
+        title: String,
+        due_date: NaiveDate,
+        study_min: u32,
+    },
+    DeleteDeadline {
+        id: String,
+    },
 }
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct Capacity {
@@ -294,6 +413,11 @@ pub struct Snapshot {
     pub goal_progress: Vec<GoalProgress>,
     pub templates: Vec<Template>,
     pub saved_filters: Vec<SavedFilter>,
+    pub dsa_problems: Vec<DsaProblem>,
+    pub dsa_topics: Vec<TopicCoverage>,
+    pub subjects: Vec<Subject>,
+    pub syllabus_items: Vec<SyllabusItem>,
+    pub deadlines: Vec<Deadline>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "type", content = "data", rename_all = "snake_case")]
@@ -308,4 +432,8 @@ pub enum Response {
     Goal(Goal),
     Template(Template),
     Filter(SavedFilter),
+    DsaProblem(DsaProblem),
+    Subject(Subject),
+    SyllabusItem(SyllabusItem),
+    Deadline(Deadline),
 }

@@ -1,7 +1,7 @@
 pub mod model;
 pub mod parser;
 pub mod planner;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, TimeZone, Utc};
 use chrono_tz::Tz;
 use model::*;
 use planner::Planner;
@@ -51,6 +51,112 @@ fn ensure_live_entity(deleted_at: Option<DateTime<Utc>>, label: &str) -> Result<
     }
 }
 
+fn validate_confidence(confidence: u8) -> Result<u8> {
+    if (1..=5).contains(&confidence) {
+        Ok(confidence)
+    } else {
+        Err(Error::Validation(
+            "Confidence must be between 1 and 5".into(),
+        ))
+    }
+}
+
+fn review_interval(stage: u8, confidence: u8) -> i64 {
+    let base: i64 = match stage.clamp(1, 4) {
+        1 => 1,
+        2 => 3,
+        3 => 7,
+        _ => 21,
+    };
+    let adjusted = match confidence {
+        1 => (base + 1) / 2,
+        2 => base - 1,
+        3 => base,
+        4 => base + 2,
+        _ => base + 7,
+    };
+    adjusted.max(1)
+}
+
+fn review_date(now: DateTime<Utc>, tz: Tz, stage: u8, confidence: u8) -> NaiveDate {
+    now.with_timezone(&tz).date_naive() + chrono::Duration::days(review_interval(stage, confidence))
+}
+
+fn local_five_pm(day: NaiveDate, tz: Tz) -> Option<DateTime<Utc>> {
+    tz.from_local_datetime(&day.and_hms_opt(17, 0, 0).unwrap())
+        .earliest()
+        .map(|at| at.with_timezone(&Utc))
+}
+
+fn revision_task(problem: &DsaProblem, day: NaiveDate, tz: Tz, now: DateTime<Utc>) -> Task {
+    Task {
+        id: ulid::Ulid::new().to_string(),
+        title: format!("Revise: {}", problem.title),
+        notes: format!("DSA revision for {} ({})", problem.title, problem.topic),
+        status: Status::Todo,
+        priority: 3,
+        energy: Energy::Low,
+        est_min: 30,
+        actual_min: 0,
+        due_at: local_five_pm(day, tz),
+        planned_day: Some(day),
+        scheduled_start: None,
+        scheduled_end: None,
+        parent_id: None,
+        project_id: None,
+        goal_id: None,
+        dsa_problem_id: Some(problem.id.clone()),
+        tags: vec!["!revise".into()],
+        carried_count: 0,
+        created_at: now,
+        completed_at: None,
+        deleted_at: None,
+        reminded_at: None,
+    }
+}
+
+fn study_tasks(deadline: &Deadline, today: NaiveDate, tz: Tz, now: DateTime<Utc>) -> Vec<Task> {
+    let days = (deadline.due_date - today).num_days();
+    let window = if days <= 0 { 1 } else { days.min(14) };
+    let per_day = deadline
+        .study_min
+        .max(1)
+        .div_ceil(window as u32)
+        .clamp(1, 1440);
+    (0..window)
+        .map(|offset| {
+            let day = today + chrono::Duration::days(offset);
+            Task {
+                id: ulid::Ulid::new().to_string(),
+                title: format!("Study: {}", deadline.title),
+                notes: format!(
+                    "Study block for {} (due {})",
+                    deadline.title, deadline.due_date
+                ),
+                status: Status::Todo,
+                priority: 3,
+                energy: Energy::Low,
+                est_min: per_day,
+                actual_min: 0,
+                due_at: local_five_pm(day, tz),
+                planned_day: Some(day),
+                scheduled_start: None,
+                scheduled_end: None,
+                parent_id: None,
+                project_id: None,
+                goal_id: None,
+                dsa_problem_id: None,
+                tags: vec!["!study".into()],
+                carried_count: 0,
+                created_at: now,
+                completed_at: None,
+                deleted_at: None,
+                reminded_at: None,
+            }
+        })
+        .collect()
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("{0}")]
@@ -79,6 +185,7 @@ impl Core {
         Migrations::new(vec![
             M::up(include_str!("schema.sql")),
             M::up(include_str!("schema_v2.sql")),
+            M::up(include_str!("schema_v3.sql")),
         ])
         .to_latest(&mut conn)?;
         Ok(Self { conn })
@@ -162,6 +269,46 @@ impl Core {
     pub fn saved_filters(&self) -> Result<Vec<SavedFilter>> {
         self.load_entities("SELECT data FROM saved_filters ORDER BY created_at")
     }
+    pub fn dsa_problems(&self) -> Result<Vec<DsaProblem>> {
+        self.load_entities(
+            "SELECT data FROM dsa_problems WHERE deleted=0 ORDER BY json_extract(data,'$.created_at')",
+        )
+    }
+    pub fn subjects(&self) -> Result<Vec<Subject>> {
+        self.load_entities(
+            "SELECT data FROM subjects WHERE deleted=0 ORDER BY json_extract(data,'$.created_at')",
+        )
+    }
+    pub fn syllabus_items(&self) -> Result<Vec<SyllabusItem>> {
+        self.load_entities(
+            "SELECT data FROM syllabus_items WHERE deleted=0 ORDER BY json_extract(data,'$.created_at')",
+        )
+    }
+    pub fn deadlines(&self) -> Result<Vec<Deadline>> {
+        self.load_entities(
+            "SELECT data FROM deadlines WHERE deleted=0 ORDER BY json_extract(data,'$.due_date')",
+        )
+    }
+    fn dsa_problem(&self, id: &str) -> Result<DsaProblem> {
+        self.load_one(
+            "SELECT data FROM dsa_problems WHERE id=?1",
+            id,
+            "DSA problem",
+        )
+    }
+    fn subject(&self, id: &str) -> Result<Subject> {
+        self.load_one("SELECT data FROM subjects WHERE id=?1", id, "Subject")
+    }
+    fn syllabus_item(&self, id: &str) -> Result<SyllabusItem> {
+        self.load_one(
+            "SELECT data FROM syllabus_items WHERE id=?1",
+            id,
+            "Syllabus item",
+        )
+    }
+    fn deadline(&self, id: &str) -> Result<Deadline> {
+        self.load_one("SELECT data FROM deadlines WHERE id=?1", id, "Deadline")
+    }
     fn project(&self, id: &str) -> Result<Project> {
         self.load_one("SELECT data FROM projects WHERE id=?1", id, "Project")
     }
@@ -222,6 +369,33 @@ impl Core {
                 let goals = self.goals()?;
                 let templates = self.templates()?;
                 let saved_filters = self.saved_filters()?;
+                let dsa_problems = self.dsa_problems()?;
+                let subjects = self.subjects()?;
+                let syllabus_items = self.syllabus_items()?;
+                let deadlines = self.deadlines()?;
+                let mut topics: std::collections::BTreeMap<String, (usize, usize, u32)> =
+                    std::collections::BTreeMap::new();
+                for problem in &dsa_problems {
+                    let entry = topics.entry(problem.topic.clone()).or_insert((0, 0, 0));
+                    entry.0 += 1;
+                    if problem.status == DsaStatus::Solved {
+                        entry.1 += 1;
+                        entry.2 += problem.confidence as u32;
+                    }
+                }
+                let dsa_topics = topics
+                    .into_iter()
+                    .map(|(topic, (total, solved, sum))| TopicCoverage {
+                        topic,
+                        total,
+                        solved,
+                        average_confidence: if solved == 0 {
+                            0.0
+                        } else {
+                            (sum as f64 / solved as f64 * 10.0).round() / 10.0
+                        },
+                    })
+                    .collect();
                 let goal_progress = goals
                     .iter()
                     .map(|goal| {
@@ -246,6 +420,11 @@ impl Core {
                     goal_progress,
                     templates,
                     saved_filters,
+                    dsa_problems,
+                    dsa_topics,
+                    subjects,
+                    syllabus_items,
+                    deadlines,
                 }))
             }
             Command::ParseQuickAdd { text } => Ok(Response::Parsed(parser::parse(&text, now, tz)?)),
@@ -276,6 +455,7 @@ impl Core {
                     parent_id,
                     project_id: None,
                     goal_id: None,
+                    dsa_problem_id: None,
                     tags: p.tags,
                     carried_count: 0,
                     created_at: now,
@@ -654,6 +834,7 @@ impl Core {
                     parent_id,
                     project_id: template.project_id.clone(),
                     goal_id: None,
+                    dsa_problem_id: None,
                     tags: template.tags.clone(),
                     carried_count: 0,
                     created_at: now,
@@ -711,6 +892,7 @@ impl Core {
                     parent_id: None,
                     project_id,
                     goal_id: None,
+                    dsa_problem_id: None,
                     tags: vec!["!issue".into()],
                     carried_count: 0,
                     created_at: now,
@@ -739,6 +921,200 @@ impl Core {
                 let filter = self.saved_filter(&id)?;
                 self.delete_filter(&filter, actor, now)?;
                 Ok(Response::Filter(filter))
+            }
+            Command::CreateDsaProblem {
+                title,
+                url,
+                topic,
+                difficulty,
+                platform,
+                notes,
+            } => {
+                let problem = DsaProblem {
+                    id: ulid::Ulid::new().to_string(),
+                    title: validate_text(&title, 500, "problem title")?,
+                    url: clean_optional(url),
+                    topic: validate_text(&topic, 80, "topic")?,
+                    difficulty,
+                    platform: clean_optional(platform),
+                    status: DsaStatus::Todo,
+                    confidence: 3,
+                    solved_at: None,
+                    next_review_at: None,
+                    review_stage: 0,
+                    notes: validate_note(notes)?,
+                    created_at: now,
+                    deleted_at: None,
+                };
+                self.save_dsa_problem(None, &problem, actor, "create_dsa_problem", now)?;
+                Ok(Response::DsaProblem(problem))
+            }
+            Command::UpdateDsaProblem {
+                id,
+                title,
+                url,
+                topic,
+                difficulty,
+                platform,
+                notes,
+            } => {
+                let before = self.dsa_problem(&id)?;
+                ensure_live_entity(before.deleted_at, "problem")?;
+                let mut problem = before.clone();
+                problem.title = validate_text(&title, 500, "problem title")?;
+                problem.url = clean_optional(url);
+                problem.topic = validate_text(&topic, 80, "topic")?;
+                problem.difficulty = difficulty;
+                problem.platform = clean_optional(platform);
+                problem.notes = validate_note(notes)?;
+                self.save_dsa_problem(Some(&before), &problem, actor, "update_dsa_problem", now)?;
+                Ok(Response::DsaProblem(problem))
+            }
+            Command::SolveDsaProblem { id, confidence } => {
+                let before = self.dsa_problem(&id)?;
+                ensure_live_entity(before.deleted_at, "problem")?;
+                if before.status == DsaStatus::Solved {
+                    return Err(Error::Validation(
+                        "This problem is already solved; review it instead".into(),
+                    ));
+                }
+                let confidence = validate_confidence(confidence)?;
+                let mut problem = before.clone();
+                problem.status = DsaStatus::Solved;
+                problem.confidence = confidence;
+                problem.solved_at = Some(now);
+                problem.review_stage = 1;
+                let day = review_date(now, tz, 1, confidence);
+                problem.next_review_at = Some(day);
+                let task = revision_task(&problem, day, tz, now);
+                self.save_dsa_review(&before, &problem, &task, &[], actor, now)?;
+                Ok(Response::DsaProblem(problem))
+            }
+            Command::ReviewDsaProblem { id, confidence } => {
+                let before = self.dsa_problem(&id)?;
+                ensure_live_entity(before.deleted_at, "problem")?;
+                if before.status != DsaStatus::Solved {
+                    return Err(Error::Validation(
+                        "Solve this problem before reviewing it".into(),
+                    ));
+                }
+                let confidence = validate_confidence(confidence)?;
+                let mut problem = before.clone();
+                problem.confidence = confidence;
+                problem.review_stage = problem.review_stage.saturating_add(1).clamp(1, 4);
+                let day = review_date(now, tz, problem.review_stage, confidence);
+                problem.next_review_at = Some(day);
+                let task = revision_task(&problem, day, tz, now);
+                let mut superseded = Vec::new();
+                for old in self.tasks()?.into_iter().filter(|task| {
+                    task.deleted_at.is_none()
+                        && task.status.active()
+                        && task.dsa_problem_id.as_deref() == Some(problem.id.as_str())
+                }) {
+                    let prior = old.clone();
+                    let mut completed = old;
+                    completed.status = Status::Done;
+                    completed.completed_at = Some(now);
+                    superseded.push((prior, completed));
+                }
+                self.save_dsa_review(&before, &problem, &task, &superseded, actor, now)?;
+                Ok(Response::DsaProblem(problem))
+            }
+            Command::DeleteDsaProblem { id } => {
+                let before = self.dsa_problem(&id)?;
+                ensure_live_entity(before.deleted_at, "problem")?;
+                let mut problem = before.clone();
+                problem.deleted_at = Some(now);
+                self.save_dsa_problem(Some(&before), &problem, actor, "delete_dsa_problem", now)?;
+                Ok(Response::DsaProblem(problem))
+            }
+            Command::CreateSubject { name } => {
+                let subject = Subject {
+                    id: ulid::Ulid::new().to_string(),
+                    name: validate_text(&name, 200, "subject name")?,
+                    created_at: now,
+                    deleted_at: None,
+                };
+                self.save_subject(None, &subject, actor, "create_subject", now)?;
+                Ok(Response::Subject(subject))
+            }
+            Command::DeleteSubject { id } => {
+                let before = self.subject(&id)?;
+                ensure_live_entity(before.deleted_at, "subject")?;
+                let mut subject = before.clone();
+                subject.deleted_at = Some(now);
+                self.save_subject(Some(&before), &subject, actor, "delete_subject", now)?;
+                Ok(Response::Subject(subject))
+            }
+            Command::AddSyllabusItem { subject_id, title } => {
+                ensure_live_entity(self.subject(&subject_id)?.deleted_at, "subject")?;
+                let item = SyllabusItem {
+                    id: ulid::Ulid::new().to_string(),
+                    subject_id,
+                    title: validate_text(&title, 300, "syllabus item")?,
+                    done: false,
+                    created_at: now,
+                    deleted_at: None,
+                };
+                self.save_syllabus_item(None, &item, actor, "add_syllabus_item", now)?;
+                Ok(Response::SyllabusItem(item))
+            }
+            Command::SetSyllabusItemDone { id, done } => {
+                let before = self.syllabus_item(&id)?;
+                ensure_live_entity(before.deleted_at, "syllabus item")?;
+                let mut item = before.clone();
+                item.done = done;
+                self.save_syllabus_item(
+                    Some(&before),
+                    &item,
+                    actor,
+                    "set_syllabus_item_done",
+                    now,
+                )?;
+                Ok(Response::SyllabusItem(item))
+            }
+            Command::DeleteSyllabusItem { id } => {
+                let before = self.syllabus_item(&id)?;
+                ensure_live_entity(before.deleted_at, "syllabus item")?;
+                let mut item = before.clone();
+                item.deleted_at = Some(now);
+                self.save_syllabus_item(Some(&before), &item, actor, "delete_syllabus_item", now)?;
+                Ok(Response::SyllabusItem(item))
+            }
+            Command::CreateDeadline {
+                subject_id,
+                title,
+                due_date,
+                study_min,
+            } => {
+                if let Some(id) = &subject_id {
+                    ensure_live_entity(self.subject(id)?.deleted_at, "subject")?;
+                }
+                if !(1..=1440).contains(&study_min) {
+                    return Err(Error::Validation(
+                        "Study minutes must be between 1 and 1440".into(),
+                    ));
+                }
+                let deadline = Deadline {
+                    id: ulid::Ulid::new().to_string(),
+                    subject_id,
+                    title: validate_text(&title, 300, "deadline title")?,
+                    due_date,
+                    study_min,
+                    created_at: now,
+                    deleted_at: None,
+                };
+                let tasks = study_tasks(&deadline, today, tz, now);
+                self.save_deadline(None, &deadline, &tasks, actor, "create_deadline", now)?;
+                Ok(Response::Deadline(deadline))
+            }
+            Command::DeleteDeadline { id } => {
+                let before = self.deadline(&id)?;
+                ensure_live_entity(before.deleted_at, "deadline")?;
+                let mut deadline = before.clone();
+                deadline.deleted_at = Some(now);
+                self.save_deadline(Some(&before), &deadline, &[], actor, "delete_deadline", now)?;
+                Ok(Response::Deadline(deadline))
             }
         }
     }
@@ -961,6 +1337,164 @@ impl Core {
             None::<&SavedFilter>,
             now,
         )?;
+        tx.commit()?;
+        Ok(())
+    }
+    fn persist_dsa_problem(tx: &Transaction<'_>, problem: &DsaProblem) -> Result<()> {
+        tx.execute("INSERT INTO dsa_problems(id,data,deleted) VALUES(?1,?2,?3) ON CONFLICT(id) DO UPDATE SET data=excluded.data,deleted=excluded.deleted", params![problem.id,serde_json::to_string(problem)?,problem.deleted_at.is_some()])?;
+        Ok(())
+    }
+    fn save_dsa_problem(
+        &mut self,
+        before: Option<&DsaProblem>,
+        problem: &DsaProblem,
+        actor: Actor,
+        action: &str,
+        now: DateTime<Utc>,
+    ) -> Result<()> {
+        let tx = self.conn.transaction()?;
+        Self::persist_dsa_problem(&tx, problem)?;
+        Self::event(
+            &tx,
+            actor,
+            "dsa_problem",
+            action,
+            &problem.id,
+            before,
+            Some(problem),
+            now,
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+    fn save_dsa_review(
+        &mut self,
+        before: &DsaProblem,
+        after: &DsaProblem,
+        task: &Task,
+        superseded: &[(Task, Task)],
+        actor: Actor,
+        now: DateTime<Utc>,
+    ) -> Result<()> {
+        let tx = self.conn.transaction()?;
+        Self::persist_dsa_problem(&tx, after)?;
+        Self::event(
+            &tx,
+            actor,
+            "dsa_problem",
+            "review_dsa_problem",
+            &after.id,
+            Some(before),
+            Some(after),
+            now,
+        )?;
+        for (prior, completed) in superseded {
+            Self::persist(&tx, completed)?;
+            Self::event(
+                &tx,
+                actor,
+                "task",
+                "complete_task",
+                &completed.id,
+                Some(prior),
+                Some(completed),
+                now,
+            )?;
+        }
+        Self::persist(&tx, task)?;
+        Self::event(
+            &tx,
+            actor,
+            "task",
+            "create_task",
+            &task.id,
+            None::<&Task>,
+            Some(task),
+            now,
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+    fn save_subject(
+        &mut self,
+        before: Option<&Subject>,
+        subject: &Subject,
+        actor: Actor,
+        action: &str,
+        now: DateTime<Utc>,
+    ) -> Result<()> {
+        let tx = self.conn.transaction()?;
+        tx.execute("INSERT INTO subjects(id,data,deleted) VALUES(?1,?2,?3) ON CONFLICT(id) DO UPDATE SET data=excluded.data,deleted=excluded.deleted", params![subject.id,serde_json::to_string(subject)?,subject.deleted_at.is_some()])?;
+        Self::event(
+            &tx,
+            actor,
+            "subject",
+            action,
+            &subject.id,
+            before,
+            Some(subject),
+            now,
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+    fn save_syllabus_item(
+        &mut self,
+        before: Option<&SyllabusItem>,
+        item: &SyllabusItem,
+        actor: Actor,
+        action: &str,
+        now: DateTime<Utc>,
+    ) -> Result<()> {
+        let tx = self.conn.transaction()?;
+        tx.execute("INSERT INTO syllabus_items(id,data,deleted) VALUES(?1,?2,?3) ON CONFLICT(id) DO UPDATE SET data=excluded.data,deleted=excluded.deleted", params![item.id,serde_json::to_string(item)?,item.deleted_at.is_some()])?;
+        Self::event(
+            &tx,
+            actor,
+            "syllabus_item",
+            action,
+            &item.id,
+            before,
+            Some(item),
+            now,
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+    fn save_deadline(
+        &mut self,
+        before: Option<&Deadline>,
+        deadline: &Deadline,
+        tasks: &[Task],
+        actor: Actor,
+        action: &str,
+        now: DateTime<Utc>,
+    ) -> Result<()> {
+        let tx = self.conn.transaction()?;
+        tx.execute("INSERT INTO deadlines(id,data,deleted) VALUES(?1,?2,?3) ON CONFLICT(id) DO UPDATE SET data=excluded.data,deleted=excluded.deleted", params![deadline.id,serde_json::to_string(deadline)?,deadline.deleted_at.is_some()])?;
+        Self::event(
+            &tx,
+            actor,
+            "deadline",
+            action,
+            &deadline.id,
+            before,
+            Some(deadline),
+            now,
+        )?;
+        for task in tasks {
+            Self::persist(&tx, task)?;
+            Self::event(
+                &tx,
+                actor,
+                "task",
+                "create_task",
+                &task.id,
+                None::<&Task>,
+                Some(task),
+                now,
+            )?;
+        }
         tx.commit()?;
         Ok(())
     }

@@ -26,6 +26,10 @@ A Windows x64 NSIS release installer was built successfully with `npm run tauri 
 
 Native UI Automation drove the debug app against an isolated data directory containing a pre-existing Phase 0–2 database. The app migrated it in place (`user_version` 1 → 2) without losing tasks. The run created a project, a goal, an imported GitHub issue, a template and a saved filter; linked a task to the project and goal; created another task from the template; and rendered the board, goal progress and template rows. The process reported `Responding = true` after every step. A separate stress run added five past-due tasks in a row to exercise the reminder/tray path after the IPC concurrency fix; the app stayed responsive and persisted all of them. The test process and dev server were stopped afterwards; the repository and type checks listed above were re-run after Phase 3.
 
+### Phase 4 native validation (2026-11-03)
+
+The same harness migrated the existing smoke database in place (`user_version` 2 → 3). It added a DSA problem, logged it as solved (stage 1, next review the following day, one linked revision task), then reviewed it (stage 2, a 3-day interval, the old revision completed and a new one created in one transaction). It added a subject and a syllabus item and toggled the item done. It created a deadline; the native date input required keyboard entry (Chromium ignores UIA value writes), and the resulting past date correctly produced a single same-day study task. The process stayed responsive throughout. Multi-day back-scheduling (4 days, 120 minutes → four 30-minute tasks before the deadline) is covered by the Rust integration test.
+
 ## Dependency audit
 
 `npm audit --omit=dev`: zero findings. The complete development dependency graph reports 14 findings (2 low, 12 moderate) propagated from `deepmerge` and `minimatch` in tooling. Critical findings in the initial test-runner dependency were removed by upgrading Vitest. No unsupported major transitive override was forced just to silence the audit. Review upstream fixes through Dependabot before exposing development servers or processing untrusted build inputs.

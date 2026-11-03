@@ -164,6 +164,70 @@
         "type",
         "data"
       ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/DsaProblem"
+        },
+        "type": {
+          "type": "string",
+          "const": "dsa_problem"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/Subject"
+        },
+        "type": {
+          "type": "string",
+          "const": "subject"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/SyllabusItem"
+        },
+        "type": {
+          "type": "string",
+          "const": "syllabus_item"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/Deadline"
+        },
+        "type": {
+          "type": "string",
+          "const": "deadline"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ]
     }
   ],
   "$defs": {
@@ -192,6 +256,148 @@
         "minutes",
         "over_count",
         "over_minutes"
+      ]
+    },
+    "Deadline": {
+      "type": "object",
+      "properties": {
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "deleted_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "due_date": {
+          "type": "string",
+          "format": "date"
+        },
+        "id": {
+          "type": "string"
+        },
+        "study_min": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "subject_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "due_date",
+        "study_min",
+        "created_at"
+      ]
+    },
+    "DsaDifficulty": {
+      "type": "string",
+      "enum": [
+        "easy",
+        "medium",
+        "hard"
+      ]
+    },
+    "DsaProblem": {
+      "type": "object",
+      "properties": {
+        "confidence": {
+          "type": "integer",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "deleted_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "difficulty": {
+          "$ref": "#/$defs/DsaDifficulty"
+        },
+        "id": {
+          "type": "string"
+        },
+        "next_review_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        },
+        "notes": {
+          "type": "string"
+        },
+        "platform": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "review_stage": {
+          "type": "integer",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0
+        },
+        "solved_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "status": {
+          "$ref": "#/$defs/DsaStatus"
+        },
+        "title": {
+          "type": "string"
+        },
+        "topic": {
+          "type": "string"
+        },
+        "url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "topic",
+        "difficulty",
+        "status",
+        "confidence",
+        "review_stage",
+        "notes",
+        "created_at"
+      ]
+    },
+    "DsaStatus": {
+      "type": "string",
+      "enum": [
+        "todo",
+        "solved"
       ]
     },
     "Energy": {
@@ -456,6 +662,24 @@
         "capacity": {
           "$ref": "#/$defs/Capacity"
         },
+        "deadlines": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Deadline"
+          }
+        },
+        "dsa_problems": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DsaProblem"
+          }
+        },
+        "dsa_topics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TopicCoverage"
+          }
+        },
         "goal_progress": {
           "type": "array",
           "items": {
@@ -482,6 +706,18 @@
         },
         "settings": {
           "$ref": "#/$defs/Settings"
+        },
+        "subjects": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Subject"
+          }
+        },
+        "syllabus_items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SyllabusItem"
+          }
         },
         "tags": {
           "type": "array",
@@ -516,7 +752,12 @@
         "goals",
         "goal_progress",
         "templates",
-        "saved_filters"
+        "saved_filters",
+        "dsa_problems",
+        "dsa_topics",
+        "subjects",
+        "syllabus_items",
+        "deadlines"
       ]
     },
     "Status": {
@@ -527,6 +768,68 @@
         "doing",
         "done",
         "dropped"
+      ]
+    },
+    "Subject": {
+      "type": "object",
+      "properties": {
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "deleted_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "created_at"
+      ]
+    },
+    "SyllabusItem": {
+      "type": "object",
+      "properties": {
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "deleted_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "done": {
+          "type": "boolean"
+        },
+        "id": {
+          "type": "string"
+        },
+        "subject_id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "subject_id",
+        "title",
+        "done",
+        "created_at"
       ]
     },
     "Task": {
@@ -559,6 +862,13 @@
             "null"
           ],
           "format": "date-time"
+        },
+        "dsa_problem_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
         },
         "due_at": {
           "type": [
@@ -725,6 +1035,34 @@
         "est_min",
         "tags",
         "created_at"
+      ]
+    },
+    "TopicCoverage": {
+      "type": "object",
+      "properties": {
+        "average_confidence": {
+          "type": "number",
+          "format": "double"
+        },
+        "solved": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "topic": {
+          "type": "string"
+        },
+        "total": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "topic",
+        "total",
+        "solved",
+        "average_confidence"
       ]
     }
   }

@@ -25,4 +25,4 @@ SQLite WAL and foreign keys, FTS5, migrations, ULID identity, UTC timestamps. Al
 
 ## Deferred
 
-Projects/goals/templates/saved filters moved to [Spec 002](../002-projects-and-goals/spec.md) and are implemented there. Phases 4–7 remain deferred: recurrence, SRS/college, habits/focus analytics, exports/backups, bridge/MCP/undo, updater, autostart and release signing. Native webview suspension is platform-specific; hidden UI performs no interval work, but OS-level suspension needs a separate measured validation.
+Projects/goals/templates/saved filters moved to [Spec 002](../002-projects-and-goals/spec.md) and are implemented there. DSA/college moved to [Spec 003](../003-dsa-and-college/spec.md) and is implemented there. Phases 5–7 remain deferred: habits/focus analytics, recurrence, exports/backups, bridge/MCP/undo, updater, autostart and release signing. Native webview suspension is platform-specific; hidden UI performs no interval work, but OS-level suspension needs a separate measured validation.
