@@ -1435,3 +1435,82 @@ fn backup_creates_a_readable_copy() {
     let copy = Core::open(&backup).unwrap();
     assert_eq!(copy.tasks().unwrap().len(), 1);
 }
+#[test]
+fn bridge_settings_require_a_token_when_enabled() {
+    let mut core = Core::memory().unwrap();
+    let mut settings = core.settings().unwrap();
+    assert!(!settings.bridge_enabled);
+    settings.bridge_enabled = true;
+    settings.bridge_token = "short".into();
+    assert!(core
+        .execute(Command::SaveSettings(settings.clone()), Actor::User, now())
+        .is_err());
+    settings.bridge_token = "0123456789abcdef".into();
+    core.execute(Command::SaveSettings(settings), Actor::User, now())
+        .unwrap();
+    assert!(core.settings().unwrap().bridge_enabled);
+    assert_eq!(core.settings().unwrap().bridge_port, 8765);
+}
+#[test]
+fn undo_reverts_the_latest_task_change_and_guards_tampering() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("undo.db");
+    let mut core = Core::open(&path).unwrap();
+    create(&mut core, "Undo me");
+    let undone = core.undo_last(Actor::Jarvis, now()).unwrap().unwrap();
+    assert_eq!(undone.action, "create_task");
+    assert!(core.tasks().unwrap()[0].deleted_at.is_some());
+
+    let task = create(&mut core, "Edit me");
+    let mut edit = edit_for(&task);
+    edit.title = "Edited".into();
+    core.execute(Command::UpdateTask(edit), Actor::User, now())
+        .unwrap();
+    let undone = core.undo_last(Actor::Jarvis, now()).unwrap().unwrap();
+    assert_eq!(undone.action, "update_task");
+    assert_eq!(undone.task.title, "Edit me");
+    assert_eq!(
+        core.tasks()
+            .unwrap()
+            .into_iter()
+            .find(|candidate| candidate.id == task.id)
+            .unwrap()
+            .title,
+        "Edit me"
+    );
+
+    let task = create(&mut core, "Delete me");
+    core.execute(
+        Command::DeleteTask {
+            id: task.id,
+            dry_run: false,
+        },
+        Actor::User,
+        now(),
+    )
+    .unwrap();
+    let undone = core.undo_last(Actor::Jarvis, now()).unwrap().unwrap();
+    assert_eq!(undone.action, "delete_task");
+    assert!(undone.task.deleted_at.is_none());
+
+    let task = create(&mut core, "Guard me");
+    let mut edit = edit_for(&task);
+    edit.title = "One".into();
+    core.execute(Command::UpdateTask(edit), Actor::User, now())
+        .unwrap();
+    let conn = rusqlite::Connection::open(&path).unwrap();
+    let raw: String = conn
+        .query_row("SELECT data FROM tasks WHERE id=?1", [&task.id], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    let mut value: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    value["title"] = "Tampered".into();
+    conn.execute(
+        "UPDATE tasks SET data=?1 WHERE id=?2",
+        rusqlite::params![value.to_string(), task.id],
+    )
+    .unwrap();
+    drop(conn);
+    assert!(core.undo_last(Actor::Jarvis, now()).is_err());
+}

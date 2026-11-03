@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/dayboard-core", "src-tauri"]
+members = ["crates/dayboard-core", "crates/dayboard-bridge", "src-tauri"]
 default-members = ["crates/dayboard-core"]
 resolver = "2"
 

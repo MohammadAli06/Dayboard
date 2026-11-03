@@ -1323,6 +1323,21 @@
     "Settings": {
       "type": "object",
       "properties": {
+        "bridge_enabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "bridge_port": {
+          "type": "integer",
+          "format": "uint16",
+          "default": 8765,
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "bridge_token": {
+          "type": "string",
+          "default": ""
+        },
         "max_minutes": {
           "type": "integer",
           "format": "uint32",

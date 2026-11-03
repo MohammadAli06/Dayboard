@@ -36,6 +36,7 @@ On first use, open **Preferences → Use this device's timezone**, then save. Th
 - Projects with a backlog/doing/done board, repo path and branch, **Open in VS Code**, local GitHub issue URL import, task templates, goals with derived progress, and saved filters.
 - DSA problem tracker with confidence-based spaced repetition (1/3/7/21 days), linked revision tasks, topic coverage, subjects with syllabus checklists, and deadlines that back-schedule study tasks.
 - Focus sessions (focus/break) that roll elapsed minutes into the linked task, habits with streaks, daily review notes, last-7-days stats, recurrence rules, JSON/Markdown export, JSON import and rolling daily backups.
+- Optional localhost Jarvis bridge: JSON-RPC, MCP over HTTP or stdio, bearer-token auth, compact summaries, SSE change events and undo (off by default).
 - Drag-to-hour time blocking, accessible date/time fields, capacity warnings and rule-based plan suggestions.
 - Calendar rollover with carried counts, preserving original due deadlines.
 - Tray menu, single instance, global capture and event-driven native reminders.
@@ -73,6 +74,39 @@ For an isolated testing or portable data directory, set `DAYBRIDGE_DATA_DIR` to 
 The DB uses WAL, migrations and foreign keys. Mutations and audit events commit together. Deleted tasks are retained; task history can contain previous titles/notes. The database is **not encrypted**. To manually back up, quit through the tray and copy the database; while running, SQLite may also need its WAL file. Exports and rolling backups (newest seven) are written under `exports/` and `backups/` in the same app-data directory. Import is additive and skips IDs that already exist.
 
 The app makes no runtime network requests. Installing dependencies and building may download packages/tooling. `.gitignore` excludes databases, WALs, backups, exports, environment files, keys, build output and private agent state. Review `git status` before publishing; ignore rules cannot undo a secret already committed.
+
+## Jarvis bridge (optional, off by default)
+
+The bridge exposes the same typed commands to a local MCP/JSON-RPC client. It is disabled unless you enable it:
+
+1. **Preferences → Jarvis bridge**, tick **Enable local bridge**, choose a port (default 8765), click **Generate token**, then **Save preferences**.
+2. Restart Daybridge. The log prints `Daybridge bridge listening on 127.0.0.1:8765`.
+
+It binds loopback only and requires `Authorization: Bearer <token>` on every route except `/health`. The token is stored in the local settings row; the database is not encrypted.
+
+| Route        | Purpose                                                |
+| ------------ | ------------------------------------------------------ |
+| `POST /rpc`  | JSON-RPC 2.0 methods                                   |
+| `POST /mcp`  | MCP over HTTP (`initialize`, `tools/list`, `tools/call`) |
+| `GET /events`| Server-sent change events (authorized)                 |
+| `GET /health`| Unauthenticated liveness                               |
+
+```sh
+curl -s http://127.0.0.1:8765/rpc \
+  -H "Authorization: Bearer $DAYBRIDGE_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"dayboard.today_summary"}'
+```
+
+Methods: `dayboard.command` (any typed command), `dayboard.today_summary`, `dayboard.overdue`, `dayboard.weekly_stats`, `dayboard.dsa_weak_topics`, `dayboard.search`, `dayboard.undo` and `dayboard.schema`. MCP tools mirror these as `daybridge_*`. Mutations refresh the open UI and rearm reminders.
+
+For a stdio MCP client, run the standalone bridge against the same database:
+
+```sh
+cargo run -p dayboard-bridge -- --db "%APPDATA%\dev.daybridge.desktop\daybridge.sqlite3"
+```
+
+Add `--port 8765 --token <token>` to serve HTTP instead. Do not run two HTTP bridges on one port. The in-app listener is recommended while the UI is open because it pushes change notifications. The bridge never starts by default and makes no outbound network requests.
 
 ## Spec-driven development
 
@@ -115,7 +149,7 @@ Native installers appear under `target/release/bundle/`. A Windows x64 NSIS inst
 
 ## Roadmap and limitations
 
-Phase 3 is implemented: projects with a board, repo/VS Code hand-off, local GitHub issue import, templates, goals and saved filters. Phase 4 is implemented: DSA spaced repetition, topic coverage, subjects/syllabus and deadline study tasks. Phase 5 is implemented: focus sessions, habits/streaks, recurrence, daily review, last-7-days stats, export/import and rolling backups. Phases 6–7 remain separate work: the optional Jarvis MCP/HTTP bridge, updater and autostart. There is no active bridge or listening server in the packaged application.
+Phase 3 is implemented: projects with a board, repo/VS Code hand-off, local GitHub issue import, templates, goals and saved filters. Phase 4 is implemented: DSA spaced repetition, topic coverage, subjects/syllabus and deadline study tasks. Phase 5 is implemented: focus sessions, habits/streaks, recurrence, daily review, last-7-days stats, export/import and rolling backups. Phase 6 is implemented: the optional localhost bridge (JSON-RPC/MCP, token auth, summaries, events and undo). Phase 7 remains: packaging polish, updater wiring and autostart. The bridge is off by default; there is no listening server unless you enable it.
 
 Native webview suspension, fresh-machine installation on all three OSes, notification permissions, accessibility with a screen reader, and the plan's performance budgets need manual validation. Hidden UI avoids interval work, but this is not a claim that every OS suspends its webview. Task DOM rendering is bounded; snapshots currently load all task data, so very large archives need database pagination in a later performance pass. See [validation notes](docs/validation.md).
 

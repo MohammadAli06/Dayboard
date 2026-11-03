@@ -191,6 +191,11 @@ pub struct Deadline {
     pub created_at: DateTime<Utc>,
     pub deleted_at: Option<DateTime<Utc>>,
 }
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct UndoResult {
+    pub action: String,
+    pub task: Task,
+}
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum FocusKind {
@@ -319,6 +324,9 @@ pub struct ExportBundle {
     #[serde(default)]
     pub daily_reviews: Vec<DailyReview>,
 }
+fn default_bridge_port() -> u16 {
+    8765
+}
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct Settings {
     pub timezone: String,
@@ -326,6 +334,12 @@ pub struct Settings {
     pub max_minutes: u32,
     pub work_start: u8,
     pub work_end: u8,
+    #[serde(default)]
+    pub bridge_enabled: bool,
+    #[serde(default = "default_bridge_port")]
+    pub bridge_port: u16,
+    #[serde(default)]
+    pub bridge_token: String,
 }
 impl Default for Settings {
     fn default() -> Self {
@@ -335,6 +349,9 @@ impl Default for Settings {
             max_minutes: 360,
             work_start: 9,
             work_end: 18,
+            bridge_enabled: false,
+            bridge_port: default_bridge_port(),
+            bridge_token: String::new(),
         }
     }
 }

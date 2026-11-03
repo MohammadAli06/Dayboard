@@ -6,7 +6,7 @@ use chrono_tz::Tz;
 use model::*;
 use planner::Planner;
 use regex::Regex;
-use rusqlite::{params, Connection, Transaction};
+use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use rusqlite_migration::{Migrations, M};
 use serde::de::DeserializeOwned;
 use std::{path::Path, sync::LazyLock, time::Duration};
@@ -948,9 +948,13 @@ impl Core {
                     || s.max_minutes > 1440
                     || s.work_start >= s.work_end
                     || s.work_end > 24
+                    || (s.bridge_enabled
+                        && (s.bridge_port == 0
+                            || s.bridge_token.trim().len() < 16
+                            || s.bridge_token.chars().any(char::is_whitespace)))
                 {
                     return Err(Error::Validation(
-                        "Use an IANA timezone, positive caps and a valid workday".into(),
+                        "Use an IANA timezone, positive caps and a valid workday; the bridge needs a token of at least 16 characters".into(),
                     ));
                 }
                 let tx = self.conn.transaction()?;
@@ -2110,6 +2114,57 @@ impl Core {
         let mut task = before.clone();
         task.reminded_at = Some(now);
         self.save(Some(&before), &task, Actor::Ui, action, now)
+    }
+    pub fn undo_last(&mut self, actor: Actor, now: DateTime<Utc>) -> Result<Option<UndoResult>> {
+        let row = self
+            .conn
+            .query_row(
+                "SELECT action, entity_id, payload FROM events WHERE entity='task' AND action IN ('create_task','update_task','complete_task','reschedule_task','delete_task','import') ORDER BY ts DESC, rowid DESC LIMIT 1",
+                [],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                },
+            )
+            .optional()?;
+        let Some((action, id, payload)) = row else {
+            return Ok(None);
+        };
+        let payload: serde_json::Value = serde_json::from_str(&payload)?;
+        let before = payload
+            .get("before")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null);
+        let after = payload
+            .get("after")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null);
+        let Some(current) = self.task(&id).ok() else {
+            return Ok(None);
+        };
+        if serde_json::to_value(&current)? != after {
+            return Err(Error::Validation(
+                "The latest change cannot be undone because the task has changed since".into(),
+            ));
+        }
+        let mut restored = if before.is_null() {
+            let mut deleted = current.clone();
+            deleted.deleted_at = Some(now);
+            deleted
+        } else {
+            serde_json::from_value(before)?
+        };
+        if restored.id.is_empty() {
+            restored.id = current.id.clone();
+        }
+        self.save(Some(&current), &restored, actor, "undo", now)?;
+        Ok(Some(UndoResult {
+            action,
+            task: restored,
+        }))
     }
     pub fn event_count(&self) -> Result<i64> {
         Ok(self

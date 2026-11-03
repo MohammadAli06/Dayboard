@@ -2162,6 +2162,42 @@
             /></label
           >
         </div>
+        <fieldset class="bridge-settings">
+          <legend>Jarvis bridge</legend>
+          <label class="bridge-toggle"
+            ><input
+              type="checkbox"
+              bind:checked={preferences.bridge_enabled}
+            />Enable local bridge (restart to apply)</label
+          >
+          <div class="form-grid">
+            <label
+              >Port<input
+                type="number"
+                min="1"
+                max="65535"
+                bind:value={preferences.bridge_port}
+                required
+              /></label
+            ><label
+              >Bearer token<input
+                bind:value={preferences.bridge_token}
+                placeholder="At least 16 characters"
+              /></label
+            >
+          </div>
+          <button
+            type="button"
+            onclick={() => {
+              if (preferences)
+                preferences.bridge_token = crypto.randomUUID().replaceAll('-', '');
+            }}>Generate token</button
+          >
+          <p class="muted">
+            Binds 127.0.0.1 only. Endpoints: <code>/rpc</code>,
+            <code>/mcp</code>, <code>/events</code>. Off by default.
+          </p>
+        </fieldset>
         <p class="muted">
           Global capture: Ctrl/Cmd + Shift + Space. Closing the window keeps
           reminders running in the tray. Use the tray menu to quit.

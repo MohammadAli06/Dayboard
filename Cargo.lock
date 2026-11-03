@@ -674,6 +674,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "dayboard-bridge"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "dayboard-core",
+ "schemars 1.2.3",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "dayboard-core"
 version = "0.1.0"
 dependencies = [
@@ -696,6 +708,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "chrono-tz",
+ "dayboard-bridge",
  "dayboard-core",
  "serde",
  "serde_json",

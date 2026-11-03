@@ -239,6 +239,7 @@ fn main() {
             let mut core = Core::open(data.join("daybridge.sqlite3"))?;
             core.execute(Command::Rollover { dry_run: false }, Actor::Ui, Utc::now())?;
             rolling_backup(&core, &data);
+            let settings = core.settings()?;
             let remaining = core.today_count(Utc::now()).unwrap_or(0);
             let changed = Arc::new(tokio::sync::Notify::new());
             app.manage(State {core: tokio::sync::Mutex::new(core), changed: changed.clone(), data_dir: data.clone()});
@@ -251,6 +252,29 @@ fn main() {
                 .on_menu_event(|app, event| match event.id.as_ref() {"open" => show(app, "main"), "capture" => show(app, "capture"), "quit" => { let state = app.state::<State>(); if let Ok(core) = state.core.try_lock() { let _ = core.checkpoint(); } app.exit(0);}, _ => ()}).build(app)?;
             if let Err(e) = app.global_shortcut().register("CommandOrControl+Shift+Space") { eprintln!("Quick capture shortcut unavailable: {e}. Use the tray menu."); }
             update_tray(app.handle(), remaining);
+            if settings.bridge_enabled {
+                let handle = app.handle().clone();
+                let changed_for_bridge = changed.clone();
+                let notifier: dayboard_bridge::Notifier = Arc::new(move |_| {
+                    changed_for_bridge.notify_one();
+                    let _ = handle.emit("daybridge:changed", ());
+                });
+                match dayboard_bridge::start(
+                    &data.join("daybridge.sqlite3"),
+                    settings.bridge_port,
+                    settings.bridge_token.clone(),
+                    notifier,
+                ) {
+                    Ok(port) => eprintln!("Daybridge bridge listening on 127.0.0.1:{port}"),
+                    Err(error) => {
+                        eprintln!("Daybridge bridge failed to start: {error}");
+                        let _ = app.emit(
+                            "daybridge:error",
+                            format!("Bridge failed to start: {error}"),
+                        );
+                    }
+                }
+            }
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 loop {
@@ -266,7 +290,8 @@ fn main() {
                         let boundary = (0..24).find_map(|h| tz.from_local_datetime(&tomorrow.and_hms_opt(h,0,0).unwrap()).earliest()).unwrap().with_timezone(&Utc);
                         (core.next_reminder().ok().flatten(), boundary, rolled, core.today_count(now).unwrap_or(0))
                     };
-                    if rolled { update_tray(&handle, remaining); let _ = handle.emit("daybridge:changed", ()); }
+                    if rolled { let _ = handle.emit("daybridge:changed", ()); }
+                    update_tray(&handle, remaining);
                     let wake = next.as_ref().map(|(_,at)| *at).unwrap_or(midnight).min(midnight);
                     let delay = (wake - Utc::now()).to_std().unwrap_or_default();
                     tokio::select! { _ = changed.notified() => continue, _ = tokio::time::sleep(delay) => {} }

@@ -8,6 +8,7 @@ rust-version.workspace = true
 tauri-build = { version = "2", features = [] }
 [dependencies]
 dayboard-core = { path = "../crates/dayboard-core" }
+dayboard-bridge = { path = "../crates/dayboard-bridge" }
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-notification = "2"

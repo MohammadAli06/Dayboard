@@ -1142,3 +1142,30 @@ progress::-moz-progress-bar {
   gap: 8px;
   margin: 10px 0;
 }
+.bridge-settings {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  margin: 16px 0 0;
+}
+.bridge-settings legend {
+  padding: 0 6px;
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.bridge-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-size: 12px;
+}
+.bridge-toggle input {
+  width: auto;
+}
+.dialog .bridge-settings label input:not([type='checkbox']) {
+  width: 100%;
+  font-size: 12px;
+}

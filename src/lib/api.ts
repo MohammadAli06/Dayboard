@@ -195,6 +195,9 @@ export interface Settings {
   max_minutes: number;
   work_start: number;
   work_end: number;
+  bridge_enabled: boolean;
+  bridge_port: number;
+  bridge_token: string;
 }
 export interface Snapshot {
   tasks: Task[];

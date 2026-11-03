@@ -34,6 +34,10 @@ The same harness migrated the existing smoke database in place (`user_version` 2
 
 The same harness migrated the smoke database in place (`user_version` 3 → 4) and confirmed the rolling startup backup (`backups/daybridge-2026-11-03.sqlite3`). It created a habit, logged it, saved an end-of-day review, started and stopped a focus session linked to a task, exported JSON and Markdown (`exports/`), and imported the JSON export back; the import reported zero inserts and 23 skipped existing records, as designed. A recurring task (daily rule) was completed and its next occurrence was created for the following day with the rule preserved, in the same transaction. The process stayed responsive throughout. A 3-second focus session correctly records zero whole minutes; the minute rollup is covered by the Rust test with a 30-minute session.
 
+### Phase 6 native validation (2026-11-03)
+
+The bridge was enabled from Preferences (checkbox plus a generated 32-character token), previewing that it stays off by default (no listener before enabling). After a restart the app logged `Daybridge bridge listening on 127.0.0.1:8765`. A raw unauthenticated `/rpc` request returned `HTTP/1.1 401 Unauthorized`; authenticated `ping`, `tools/list` (seven tools), `dayboard.command` (create task) and `dayboard.today_summary` succeeded over HTTP with the bearer token. The new task appeared in the open UI through the change notifier, and `dayboard.undo` soft-deleted it and removed it from the UI. The process stayed responsive. The bridge remains disabled in the default/real data directory; enabling it is explicit and requires a token.
+
 ## Dependency audit
 
 `npm audit --omit=dev`: zero findings. The complete development dependency graph reports 14 findings (2 low, 12 moderate) propagated from `deepmerge` and `minimatch` in tooling. Critical findings in the initial test-runner dependency were removed by upgrading Vitest. No unsupported major transitive override was forced just to silence the audit. Review upstream fixes through Dependabot before exposing development servers or processing untrusted build inputs.
