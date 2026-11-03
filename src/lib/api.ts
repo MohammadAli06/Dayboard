@@ -198,6 +198,8 @@ export interface Settings {
   bridge_enabled: boolean;
   bridge_port: number;
   bridge_token: string;
+  autostart: boolean;
+  onboarded: boolean;
 }
 export interface Snapshot {
   tasks: Task[];

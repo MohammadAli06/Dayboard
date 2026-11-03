@@ -1323,6 +1323,10 @@
     "Settings": {
       "type": "object",
       "properties": {
+        "autostart": {
+          "type": "boolean",
+          "default": false
+        },
         "bridge_enabled": {
           "type": "boolean",
           "default": false
@@ -1347,6 +1351,10 @@
           "type": "integer",
           "format": "uint32",
           "minimum": 0
+        },
+        "onboarded": {
+          "type": "boolean",
+          "default": false
         },
         "timezone": {
           "type": "string"

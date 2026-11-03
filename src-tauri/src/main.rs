@@ -27,6 +27,10 @@ async fn dispatch(
             | Command::ParseQuickAdd { .. }
             | Command::PlanDay { .. }
     );
+    let autostart = match &command {
+        Command::SaveSettings(settings) => Some(settings.autostart),
+        _ => None,
+    };
     // Never hold this lock across notification, tray or webview work: those
     // calls can block waiting for the UI thread, which would deadlock it.
     let (response, remaining) = {
@@ -46,6 +50,11 @@ async fn dispatch(
         let _ = app.emit("daybridge:changed", ());
         update_tray(&app, remaining);
     }
+    if let Some(enabled) = autostart {
+        if let Err(error) = apply_autostart(enabled) {
+            let _ = app.emit("daybridge:error", format!("Autostart: {error}"));
+        }
+    }
     Ok(response)
 }
 fn show(app: &tauri::AppHandle, label: &str) {
@@ -55,6 +64,84 @@ fn show(app: &tauri::AppHandle, label: &str) {
         let _ = w.set_focus();
         let _ = w.emit("daybridge:shown", ());
     }
+}
+fn apply_autostart(enabled: bool) -> Result<(), String> {
+    if cfg!(debug_assertions) {
+        if enabled {
+            eprintln!("Autostart is only applied by packaged builds.");
+        }
+        return Ok(());
+    }
+    let exe = std::env::current_exe().map_err(|error| error.to_string())?;
+    write_autostart(&exe, enabled)
+}
+#[cfg(target_os = "windows")]
+fn write_autostart(exe: &std::path::Path, enabled: bool) -> Result<(), String> {
+    let key = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
+    let mut command = std::process::Command::new("reg");
+    if enabled {
+        command.args(["add", key, "/v", "Daybridge", "/t", "REG_SZ", "/d"]);
+        command.arg(exe.as_os_str());
+        command.args(["/f"]);
+    } else {
+        command.args(["delete", key, "/v", "Daybridge", "/f"]);
+    }
+    let status = command
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map_err(|error| error.to_string())?;
+    if enabled && !status.success() {
+        return Err("Could not write the Windows autostart entry".into());
+    }
+    Ok(())
+}
+#[cfg(target_os = "macos")]
+fn write_autostart(exe: &std::path::Path, enabled: bool) -> Result<(), String> {
+    let home = std::env::var_os("HOME").ok_or("HOME is not set")?;
+    let path =
+        std::path::PathBuf::from(home).join("Library/LaunchAgents/dev.daybridge.desktop.plist");
+    if enabled {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+        }
+        let escaped = exe
+            .to_string_lossy()
+            .replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;");
+        let plist = format!(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n\
+<plist version=\"1.0\"><dict>\n\
+<key>Label</key><string>dev.daybridge.desktop</string>\n\
+<key>ProgramArguments</key><array><string>{escaped}</string></array>\n\
+<key>RunAtLoad</key><true/>\n\
+</dict></plist>\n"
+        );
+        std::fs::write(&path, plist).map_err(|error| error.to_string())?;
+    } else if path.exists() {
+        std::fs::remove_file(&path).map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+#[cfg(all(unix, not(target_os = "macos")))]
+fn write_autostart(exe: &std::path::Path, enabled: bool) -> Result<(), String> {
+    let home = std::env::var_os("HOME").ok_or("HOME is not set")?;
+    let path = std::path::PathBuf::from(home).join(".config/autostart/daybridge.desktop");
+    if enabled {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+        }
+        let exec = exe.to_string_lossy().replace('"', "\\\"");
+        let entry = format!(
+            "[Desktop Entry]\nType=Application\nName=Daybridge\nExec=\"{exec}\"\nX-GNOME-Autostart-enabled=true\n"
+        );
+        std::fs::write(&path, entry).map_err(|error| error.to_string())?;
+    } else if path.exists() {
+        std::fs::remove_file(&path).map_err(|error| error.to_string())?;
+    }
+    Ok(())
 }
 fn rolling_backup(core: &Core, data: &std::path::Path) {
     let directory = data.join("backups");

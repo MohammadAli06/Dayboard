@@ -340,6 +340,10 @@ pub struct Settings {
     pub bridge_port: u16,
     #[serde(default)]
     pub bridge_token: String,
+    #[serde(default)]
+    pub autostart: bool,
+    #[serde(default)]
+    pub onboarded: bool,
 }
 impl Default for Settings {
     fn default() -> Self {
@@ -352,6 +356,8 @@ impl Default for Settings {
             bridge_enabled: false,
             bridge_port: default_bridge_port(),
             bridge_token: String::new(),
+            autostart: false,
+            onboarded: false,
         }
     }
 }

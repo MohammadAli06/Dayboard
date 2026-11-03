@@ -37,6 +37,7 @@ On first use, open **Preferences → Use this device's timezone**, then save. Th
 - DSA problem tracker with confidence-based spaced repetition (1/3/7/21 days), linked revision tasks, topic coverage, subjects with syllabus checklists, and deadlines that back-schedule study tasks.
 - Focus sessions (focus/break) that roll elapsed minutes into the linked task, habits with streaks, daily review notes, last-7-days stats, recurrence rules, JSON/Markdown export, JSON import and rolling daily backups.
 - Optional localhost Jarvis bridge: JSON-RPC, MCP over HTTP or stdio, bearer-token auth, compact summaries, SSE change events and undo (off by default).
+- One-time welcome card and opt-in start-on-login for packaged builds.
 - Drag-to-hour time blocking, accessible date/time fields, capacity warnings and rule-based plan suggestions.
 - Calendar rollover with carried counts, preserving original due deadlines.
 - Tray menu, single instance, global capture and event-driven native reminders.
@@ -59,7 +60,7 @@ Recognized metadata tokens are removed from the title. Date-only capture means 1
 | X / E                    | Complete or reopen / edit selected task                                |
 | Escape                   | Close editor, palette or capture                                       |
 
-Closing the main window **hides it to the tray**. Choose **Quit** in the tray menu to exit. Enable OS notifications for Daybridge. Reminders run in Rust even when the window is hidden; the app must remain running. Install a packaged build for the most reliable Windows notification identity. There is no autostart yet.
+Closing the main window **hides it to the tray**. Choose **Quit** in the tray menu to exit. Enable OS notifications for Daybridge. Reminders run in Rust even when the window is hidden; the app must remain running. Install a packaged build for the most reliable Windows notification identity. Autostart is opt-in in Preferences and is applied by packaged builds.
 
 ## Data and privacy
 
@@ -142,14 +143,15 @@ cargo fmt --all -- --check
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 npm run schemas
+npm run bench:core
 npm run tauri build
 ```
 
-Native installers appear under `target/release/bundle/`. A Windows x64 NSIS installer was built locally during implementation; see the validation record. GitHub Actions runs the quality checks on Windows, macOS and Linux. A manual **Package desktop app** workflow builds installers as downloadable workflow artifacts. It does not publish a release or require signing secrets. Fork maintainers should add their own signing/notarization before distributing publicly; unsigned installers may produce OS trust prompts.
+Native installers appear under `target/release/bundle/`. A Windows x64 NSIS installer was built locally during implementation; see the validation record. GitHub Actions runs the quality checks on Windows, macOS and Linux. A manual **Package desktop app** workflow builds installers as downloadable workflow artifacts. It does not publish a release or require signing secrets. Fork maintainers should add their own signing/notarization before distributing publicly; unsigned installers may produce OS trust prompts. See [releasing](docs/releasing.md) for signing, notarization, autostart and updater setup.
 
 ## Roadmap and limitations
 
-Phase 3 is implemented: projects with a board, repo/VS Code hand-off, local GitHub issue import, templates, goals and saved filters. Phase 4 is implemented: DSA spaced repetition, topic coverage, subjects/syllabus and deadline study tasks. Phase 5 is implemented: focus sessions, habits/streaks, recurrence, daily review, last-7-days stats, export/import and rolling backups. Phase 6 is implemented: the optional localhost bridge (JSON-RPC/MCP, token auth, summaries, events and undo). Phase 7 remains: packaging polish, updater wiring and autostart. The bridge is off by default; there is no listening server unless you enable it.
+Phase 3 is implemented: projects with a board, repo/VS Code hand-off, local GitHub issue import, templates, goals and saved filters. Phase 4 is implemented: DSA spaced repetition, topic coverage, subjects/syllabus and deadline study tasks. Phase 5 is implemented: focus sessions, habits/streaks, recurrence, daily review, last-7-days stats, export/import and rolling backups. Phase 6 is implemented: the optional localhost bridge (JSON-RPC/MCP, token auth, summaries, events and undo). Phase 7 is implemented except for hosted auto-update, which needs your signing key and update endpoint: packaging metadata, autostart, onboarding, the release guide and a core benchmark are in place. The bridge is off by default; there is no listening server unless you enable it.
 
 Native webview suspension, fresh-machine installation on all three OSes, notification permissions, accessibility with a screen reader, and the plan's performance budgets need manual validation. Hidden UI avoids interval work, but this is not a claim that every OS suspends its webview. Task DOM rendering is bounded; snapshots currently load all task data, so very large archives need database pagination in a later performance pass. See [validation notes](docs/validation.md).
 

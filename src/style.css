@@ -1169,3 +1169,36 @@ progress::-moz-progress-bar {
   width: 100%;
   font-size: 12px;
 }
+.onboarding {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 18px;
+  margin-bottom: 18px;
+  border: 1px solid #3a4333;
+  border-radius: 10px;
+  background: #181d16;
+}
+.onboarding h2 {
+  margin: 0 0 6px;
+  font-size: 16px;
+}
+.onboarding p {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.onboarding ol {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.onboarding code {
+  font-size: 11px;
+  color: #cad7b8;
+}
+.onboarding > button {
+  flex: none;
+}

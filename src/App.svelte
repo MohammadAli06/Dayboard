@@ -583,6 +583,13 @@
       notice = 'Review saved.';
     }
   }
+  async function dismissOnboarding() {
+    if (!snapshot) return;
+    await run({
+      command: 'save_settings',
+      input: { ...snapshot.settings, onboarded: true },
+    });
+  }
   async function exportBackup(kind: 'json' | 'markdown') {
     try {
       const path = await exportData(kind);
@@ -955,6 +962,25 @@
               }}>Restore</button
             >
           </div>{/if}
+        {#if view === 'Today' && snapshot && !snapshot.settings.onboarded}
+          <section class="onboarding" aria-label="Welcome to Daybridge">
+            <div>
+              <h2>Welcome to Daybridge</h2>
+              <p>Everything stays on this device. The short version:</p>
+              <ol>
+                <li>Type a task above and press Enter.</li>
+                <li>
+                  Add <code>#area</code>, <code>p1</code>, <code>45m</code> or
+                  <code>today 7pm</code>.
+                </li>
+                <li>Set your timezone and caps in Preferences.</li>
+              </ol>
+            </div>
+            <button class="primary" disabled={busy} onclick={dismissOnboarding}
+              >Got it</button
+            >
+          </section>
+        {/if}
         <section class="capture-card" aria-label="Capture a task">
           {@render captureForm()}
         </section>
@@ -2162,6 +2188,11 @@
             /></label
           >
         </div>
+        <label class="bridge-toggle"
+          ><input type="checkbox" bind:checked={preferences.autostart} />Start
+          Daybridge on login (packaged builds)</label
+        >
+        <p class="muted">Development builds skip the OS autostart entry.</p>
         <fieldset class="bridge-settings">
           <legend>Jarvis bridge</legend>
           <label class="bridge-toggle"

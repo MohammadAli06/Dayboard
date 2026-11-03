@@ -62,6 +62,8 @@ beforeEach(() => {
       bridge_enabled: false,
       bridge_port: 8765,
       bridge_token: '',
+      autostart: false,
+      onboarded: true,
     },
     today: '2026-11-02',
     capacity: { count: 1, minutes: 30, over_count: false, over_minutes: false },
@@ -392,5 +394,24 @@ describe('desktop task flows', () => {
       command: 'update_task',
       input: { recurrence_rule: 'daily' },
     });
+  });
+  it('dismisses the first-run welcome card', async () => {
+    snapshot.settings.onboarded = false;
+    const user = userEvent.setup();
+    render(App);
+    await screen.findByText('Welcome to Daybridge');
+    mocked.invoke.mockImplementation(
+      async (_name: string, args: { command: Command }) => {
+        if (args.command.command === 'save_settings') {
+          snapshot.settings = args.command.input;
+          return { type: 'settings', data: snapshot.settings };
+        }
+        return { type: 'snapshot', data: structuredClone(snapshot) };
+      },
+    );
+    await user.click(screen.getByRole('button', { name: 'Got it' }));
+    await waitFor(() =>
+      expect(screen.queryByText('Welcome to Daybridge')).toBeNull(),
+    );
   });
 });

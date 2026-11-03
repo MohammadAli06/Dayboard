@@ -12,6 +12,7 @@
     "tauri": "tauri",
     "desktop": "tauri dev",
     "test": "vitest run",
+    "bench:core": "cargo run -p dayboard-core --example bench",
     "schemas": "cargo run -p dayboard-core --example schemas"
   },
   "dependencies": {

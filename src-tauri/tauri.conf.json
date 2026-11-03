@@ -41,7 +41,11 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "publisher": "Daybridge",
+    "copyright": "MIT licensed",
     "shortDescription": "A quiet local-first task planner",
+    "longDescription": "A quiet, local-first desktop task planner. Capture, plan and finish your day with a SQLite file on your device. No account, cloud service, telemetry or AI subscription is required.",
+    "licenseFile": "../LICENSE",
     "category": "Productivity",
     "icon": [
       "icons/32x32.png",

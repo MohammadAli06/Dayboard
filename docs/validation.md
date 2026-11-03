@@ -38,6 +38,24 @@ The same harness migrated the smoke database in place (`user_version` 3 → 4) a
 
 The bridge was enabled from Preferences (checkbox plus a generated 32-character token), previewing that it stays off by default (no listener before enabling). After a restart the app logged `Daybridge bridge listening on 127.0.0.1:8765`. A raw unauthenticated `/rpc` request returned `HTTP/1.1 401 Unauthorized`; authenticated `ping`, `tools/list` (seven tools), `dayboard.command` (create task) and `dayboard.today_summary` succeeded over HTTP with the bearer token. The new task appeared in the open UI through the change notifier, and `dayboard.undo` soft-deleted it and removed it from the UI. The process stayed responsive. The bridge remains disabled in the default/real data directory; enabling it is explicit and requires a token.
 
+### Performance measurements (2026-11-03)
+
+`npm run bench:core` uses an isolated database and 1,000 tasks created through the real command layer. Measurements on this Windows machine:
+
+| Metric              | Release  | Debug    |
+| ------------------- | -------- | -------- |
+| core open           | 16.18 ms | 17.98 ms |
+| snapshot p50        | 2.53 ms  | 14.38 ms |
+| snapshot p95        | 2.76 ms  | 15.11 ms |
+| snapshot max        | 3.00 ms  | 16.68 ms |
+| seed 1,000 tasks    | 785 ms   | 1,091 ms |
+
+The release snapshot p95 is inside the 10 ms query target at this sample size. These are measurements, not acceptance of the cold-start/RAM budgets (not measured here) or of very large archives; snapshots still load all task data.
+
+### Phase 7 native validation (2026-11-03)
+
+On a database without `onboarded`, the welcome card's **Got it** action saved `onboarded: true` and removed the card. Enabling **Start Daybridge on login** saved `autostart: true`; because this was a development build, no `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\Daybridge` value was written (verified absent), matching the documented dev-build skip. The app stayed responsive. Packaged-build autostart, clean-VM installation, signing/notarization and the hosted updater remain manual acceptance items.
+
 ## Dependency audit
 
 `npm audit --omit=dev`: zero findings. The complete development dependency graph reports 14 findings (2 low, 12 moderate) propagated from `deepmerge` and `minimatch` in tooling. Critical findings in the initial test-runner dependency were removed by upgrading Vitest. No unsupported major transitive override was forced just to silence the audit. Review upstream fixes through Dependabot before exposing development servers or processing untrusted build inputs.
@@ -47,6 +65,6 @@ The bridge was enabled from Preferences (checkbox plus a generated 32-character 
 - Cross-platform GitHub Actions runs (workflow added but not run remotely), clean VM install/uninstall, macOS signing/notarization and Windows signing.
 - Real native keyboard/tray/notification and display-scaling checks using the feature quickstart.
 - Native webview suspension, including platform differences; hidden UI currently avoids periodic JS work.
-- Full-process-tree RAM, idle CPU, cold start and query p95 audit. The original <60 MB / <1s / <10ms budgets are unverified targets.
+- Full-process-tree RAM, cold start and large-archive query audit. Snapshot p95 was measured at 2.76 ms (release, 1,000 tasks); RAM, cold-start and very large archive budgets remain unverified.
 - Large archives: list DOM is bounded, but snapshots still load all tasks. Database pagination remains future performance work.
-- Features from phases 3–7, including the actual Jarvis bridge, are not implemented in this release.
+- Phase 7's hosted auto-update, code signing/notarization and clean-VM installer acceptance remain outstanding; all other local features through Phase 7 are implemented.
