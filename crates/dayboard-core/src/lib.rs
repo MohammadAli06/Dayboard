@@ -1,6 +1,9 @@
+pub mod calendar;
+pub mod load;
 pub mod model;
 pub mod parser;
 pub mod planner;
+pub mod schedule;
 use chrono::{DateTime, Datelike, NaiveDate, TimeZone, Utc};
 use chrono_tz::Tz;
 use model::*;
@@ -411,6 +414,72 @@ pub enum Error {
     Migration(#[from] rusqlite_migration::Error),
 }
 pub type Result<T> = std::result::Result<T, Error>;
+fn shift_blocked(
+    settings: &Settings,
+    data: &calendar::CalendarData,
+    tasks: &[Task],
+    tz: Tz,
+    day: NaiveDate,
+) -> NaiveDate {
+    let input = load::LoadInput {
+        settings,
+        items: &data.items,
+        exceptions: &data.exceptions,
+        terms: &data.terms,
+        events: &data.events,
+        tasks,
+        tz,
+    };
+    let mut day = day;
+    for _ in 0..60 {
+        if load::day_status(&input, day).status != DayStatusKind::Blocked {
+            return day;
+        }
+        day += chrono::Duration::days(1);
+    }
+    day
+}
+fn ensure_default_term(conn: &mut Connection) -> Result<()> {
+    let count: i64 = conn.query_row("SELECT count(*) FROM terms", [], |row| row.get(0))?;
+    if count == 0 {
+        let bounds: (Option<String>, Option<String>) = conn.query_row(
+            "SELECT min(start_date), max(end_date) FROM schedule_items",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        let today = Utc::now().date_naive();
+        let start = bounds
+            .0
+            .unwrap_or_else(|| (today - chrono::Duration::days(180)).to_string());
+        let end = bounds
+            .1
+            .unwrap_or_else(|| (today + chrono::Duration::days(365)).to_string());
+        conn.execute(
+            "INSERT INTO terms(id,name,start_date,end_date,active,archived,created_at) VALUES(?1,?2,?3,?4,1,0,?5)",
+            params![
+                ulid::Ulid::new().to_string(),
+                "Current term",
+                start,
+                end,
+                Utc::now().to_rfc3339()
+            ],
+        )?;
+    }
+    let term: Option<String> = conn
+        .query_row(
+            "SELECT id FROM terms WHERE archived=0 ORDER BY active DESC, start_date LIMIT 1",
+            [],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if let Some(term) = term {
+        conn.execute(
+            "UPDATE schedule_items SET term_id=?1 WHERE term_id IS NULL",
+            [term],
+        )?;
+    }
+    Ok(())
+}
 pub struct Core {
     conn: Connection,
 }
@@ -429,8 +498,11 @@ impl Core {
             M::up(include_str!("schema_v2.sql")),
             M::up(include_str!("schema_v3.sql")),
             M::up(include_str!("schema_v4.sql")),
+            M::up(include_str!("schema_v5.sql")),
+            M::up(include_str!("schema_v6.sql")),
         ])
         .to_latest(&mut conn)?;
+        ensure_default_term(&mut conn)?;
         Ok(Self { conn })
     }
     pub fn settings(&self) -> Result<Settings> {
@@ -692,8 +764,72 @@ impl Core {
                         }
                     })
                     .collect();
+                let calendar = self.calendar_data()?;
+                let today_occurrences = schedule::occurrences(
+                    today,
+                    today,
+                    &calendar.items,
+                    &calendar.exceptions,
+                    &calendar.terms,
+                    &calendar.events,
+                    tz,
+                );
+                let week_end = today + chrono::Duration::days(6);
+                let week_occurrences = schedule::occurrences(
+                    today,
+                    week_end,
+                    &calendar.items,
+                    &calendar.exceptions,
+                    &calendar.terms,
+                    &calendar.events,
+                    tz,
+                );
+                let schedule_minutes = schedule::minutes(&today_occurrences);
+                let load_input = load::LoadInput {
+                    settings: &settings,
+                    items: &calendar.items,
+                    exceptions: &calendar.exceptions,
+                    terms: &calendar.terms,
+                    events: &calendar.events,
+                    tasks: &all,
+                    tz,
+                };
+                let day_status = load::day_status(&load_input, today);
+                let dismissed = self.dismissed_conflicts()?;
+                let conflicts = load::conflicts(&load_input, today, week_end, &dismissed);
+                let schedule_items = calendar
+                    .items
+                    .iter()
+                    .filter(|item| item.deleted_at.is_none())
+                    .cloned()
+                    .collect();
+                let active_term = calendar
+                    .terms
+                    .iter()
+                    .find(|term| term.active && !term.archived)
+                    .cloned();
+                let upcoming_exams = calendar
+                    .events
+                    .iter()
+                    .filter(|event| {
+                        event.kind.is_exam()
+                            && active_term
+                                .as_ref()
+                                .is_some_and(|term| term.id == event.term_id)
+                            && event.start_at.with_timezone(&tz).date_naive() >= today
+                            && event.start_at.with_timezone(&tz).date_naive()
+                                <= today + chrono::Duration::days(30)
+                    })
+                    .cloned()
+                    .collect();
                 Ok(Response::Snapshot(Box::new(Snapshot {
-                    capacity: planner::capacity(&all, today, &settings),
+                    capacity: planner::capacity(
+                        &all,
+                        today,
+                        &settings,
+                        day_status.available_min,
+                        schedule_minutes,
+                    ),
                     tasks,
                     settings,
                     today,
@@ -714,6 +850,15 @@ impl Core {
                     habit_streaks,
                     daily_reviews,
                     weekly_stats,
+                    schedule_items,
+                    today_occurrences,
+                    week_occurrences,
+                    terms: calendar.terms.clone(),
+                    active_term,
+                    academic_events: calendar.events.clone(),
+                    day_status,
+                    upcoming_exams,
+                    conflicts,
                 })))
             }
             Command::ParseQuickAdd { text } => Ok(Response::Parsed(parser::parse(&text, now, tz)?)),
@@ -836,7 +981,12 @@ impl Core {
                     task.status = Status::Todo;
                 }
                 self.save(Some(&before), &task, actor, "update_task", now)?;
-                Ok(Response::Task(task))
+                let overlap = self.overlaps(task.scheduled_start, task.scheduled_end, tz)?;
+                if overlap.is_empty() {
+                    Ok(Response::Task(task))
+                } else {
+                    Ok(Response::TaskScheduled(TaskScheduled { task, overlap }))
+                }
             }
             Command::CompleteTask { id, completed } => {
                 let before = self.task(&id)?;
@@ -904,7 +1054,12 @@ impl Core {
                 if !dry_run {
                     self.save(Some(&before), &task, actor, "reschedule_task", now)?;
                 }
-                Ok(Response::Task(task))
+                let overlap = self.overlaps(task.scheduled_start, task.scheduled_end, tz)?;
+                if overlap.is_empty() {
+                    Ok(Response::Task(task))
+                } else {
+                    Ok(Response::TaskScheduled(TaskScheduled { task, overlap }))
+                }
             }
             Command::Rollover { dry_run } => {
                 let tasks = self.tasks()?;
@@ -975,12 +1130,33 @@ impl Core {
                 tx.commit()?;
                 Ok(Response::Settings(s))
             }
-            Command::PlanDay { day, energy } => Ok(Response::Tasks(planner::RulePlanner.suggest(
-                &self.tasks()?,
-                day,
-                &settings,
-                energy,
-            ))),
+            Command::PlanDay { day, energy } => {
+                let all = self.tasks()?;
+                let calendar = self.calendar_data()?;
+                let input = load::LoadInput {
+                    settings: &settings,
+                    items: &calendar.items,
+                    exceptions: &calendar.exceptions,
+                    terms: &calendar.terms,
+                    events: &calendar.events,
+                    tasks: &all,
+                    tz,
+                };
+                let status = load::day_status(&input, day);
+                let planned: u32 = all
+                    .iter()
+                    .filter(|task| {
+                        task.deleted_at.is_none()
+                            && task.status.active()
+                            && task.planned_day == Some(day)
+                    })
+                    .map(|task| task.est_min)
+                    .sum();
+                let budget = status.available_min.saturating_sub(planned);
+                Ok(Response::Tasks(
+                    planner::RulePlanner.suggest(&all, day, &settings, energy, budget),
+                ))
+            }
             Command::CreateProject {
                 name,
                 kind,
@@ -1308,6 +1484,9 @@ impl Core {
                 problem.confidence = confidence;
                 problem.review_stage = problem.review_stage.saturating_add(1).clamp(1, 4);
                 let day = review_date(now, tz, problem.review_stage, confidence);
+                let calendar = self.calendar_data()?;
+                let all_tasks = self.tasks()?;
+                let day = shift_blocked(&settings, &calendar, &all_tasks, tz, day);
                 problem.next_review_at = Some(day);
                 let task = revision_task(&problem, day, tz, now);
                 let mut superseded = Vec::new();
@@ -1549,6 +1728,7 @@ impl Core {
                 self.save_review(before.as_ref(), &review, actor, "save_review", now)?;
                 Ok(Response::Review(review))
             }
+            other => self.execute_calendar(other, actor, now, &settings, tz, today),
         }
     }
     fn ensure_live(task: &Task) -> Result<()> {
@@ -2180,7 +2360,7 @@ impl Core {
     }
     pub fn export_bundle(&self) -> Result<ExportBundle> {
         Ok(ExportBundle {
-            format: "daybridge-export".into(),
+            format: "dayboard-export".into(),
             version: 1,
             exported_at: Utc::now(),
             tasks: self.load_all_rows("tasks")?,
@@ -2196,6 +2376,11 @@ impl Core {
             habit_logs: self.load_entities("SELECT data FROM habit_logs")?,
             focus_sessions: self.load_all_rows("focus_sessions")?,
             daily_reviews: self.load_all_rows("daily_reviews")?,
+            schedule_items: self.schedule_items()?,
+            schedule_exceptions: self.schedule_exceptions()?,
+            terms: self.terms()?,
+            academic_events: self.academic_events()?,
+            dismissed_conflicts: self.dismissed_conflicts()?,
         })
     }
     pub fn export_json(&self) -> Result<String> {
@@ -2203,7 +2388,7 @@ impl Core {
     }
     pub fn export_markdown(&self) -> Result<String> {
         let mut out = format!(
-            "# Daybridge export\n\nGenerated {}\n\n## Tasks\n\n",
+            "# Dayboard export\n\nGenerated {}\n\n## Tasks\n\n",
             Utc::now().to_rfc3339()
         );
         for task in self.tasks()? {
@@ -2258,6 +2443,73 @@ impl Core {
                 out.push_str(&format!(
                     "- {} (every {} days)\n",
                     habit.name, habit.cadence_days
+                ));
+            }
+        }
+        let terms = self.terms()?;
+        if !terms.is_empty() {
+            out.push_str("\n## Terms\n\n");
+            for term in terms {
+                out.push_str(&format!(
+                    "- {} ({} to {}){}\n",
+                    term.name,
+                    term.start_date,
+                    term.end_date,
+                    if term.archived { " — archived" } else { "" }
+                ));
+            }
+        }
+        let items = self.schedule_items()?;
+        if !items.is_empty() {
+            out.push_str("\n## Weekly schedule\n\n");
+            for item in items.iter().filter(|item| item.deleted_at.is_none()) {
+                out.push_str(&format!(
+                    "- {} — {:?} {}–{} on weekdays bitmask {}, remind {} min before{}\n",
+                    item.title,
+                    item.kind,
+                    item.start_time,
+                    item.end_time,
+                    item.weekdays,
+                    item.remind_before_min
+                        .map(|value| value.to_string())
+                        .unwrap_or_else(|| "no".into()),
+                    if item.active { "" } else { " — inactive" }
+                ));
+            }
+        }
+        let exceptions = self.schedule_exceptions()?;
+        if !exceptions.is_empty() {
+            out.push_str("\n## Schedule exceptions\n\n");
+            for exception in exceptions {
+                out.push_str(&format!(
+                    "- {} on {}: {:?}{}\n",
+                    exception.item_id,
+                    exception.date,
+                    exception.action,
+                    exception
+                        .new_start
+                        .as_ref()
+                        .map(|start| format!(
+                            " → {}–{}",
+                            start,
+                            exception.new_end.clone().unwrap_or_default()
+                        ))
+                        .unwrap_or_default()
+                ));
+            }
+        }
+        let events = self.academic_events()?;
+        if !events.is_empty() {
+            out.push_str("\n## Academic calendar\n\n");
+            for event in events {
+                out.push_str(&format!(
+                    "- {} — {:?}, {} to {}, prep {} days, suppress {}\n",
+                    event.title,
+                    event.kind,
+                    event.start_at.to_rfc3339(),
+                    event.end_at.to_rfc3339(),
+                    event.prep_days,
+                    calendar::suppress_str(event.suppress_classes)
                 ));
             }
         }
@@ -2328,9 +2580,9 @@ impl Core {
         now: DateTime<Utc>,
     ) -> Result<ImportSummary> {
         let bundle: ExportBundle = serde_json::from_str(raw)?;
-        if bundle.format != "daybridge-export" {
+        if bundle.format != "dayboard-export" {
             return Err(Error::Validation(
-                "This file is not a Daybridge JSON export".into(),
+                "This file is not a Dayboard JSON export".into(),
             ));
         }
         if bundle.version != 1 {
@@ -2544,6 +2796,158 @@ impl Core {
                 now,
             )? {
                 summary.daily_reviews += 1;
+            } else {
+                summary.skipped += 1;
+            }
+        }
+        for term in &bundle.terms {
+            let changed = tx.execute(
+                "INSERT OR IGNORE INTO terms(id,name,start_date,end_date,active,archived,created_at) VALUES(?1,?2,?3,?4,?5,?6,?7)",
+                params![
+                    term.id,
+                    term.name,
+                    term.start_date.to_string(),
+                    term.end_date.to_string(),
+                    term.active as i64,
+                    term.archived as i64,
+                    term.created_at.to_rfc3339()
+                ],
+            )?;
+            if changed > 0 {
+                Self::event(
+                    &tx,
+                    actor,
+                    "term",
+                    "import",
+                    &term.id,
+                    None::<&Term>,
+                    Some(term),
+                    now,
+                )?;
+                summary.terms += 1;
+            } else {
+                summary.skipped += 1;
+            }
+        }
+        for item in &bundle.schedule_items {
+            if !Self::row_exists(&tx, "terms", &item.term_id)? {
+                summary.skipped += 1;
+                continue;
+            }
+            let changed = tx.execute(
+                "INSERT OR IGNORE INTO schedule_items(id,title,kind,weekdays,start_time,end_time,start_date,end_date,location,notes,subject_id,remind_before_min,active,term_id,created_at,updated_at,deleted) VALUES(?1,?2,?3,?4,?5,?6,NULL,NULL,?7,?8,?9,?10,?11,?12,?13,?14,?15)",
+                params![
+                    item.id,
+                    item.title,
+                    calendar::kind_str(item.kind),
+                    item.weekdays as i64,
+                    item.start_time,
+                    item.end_time,
+                    item.location,
+                    item.notes,
+                    item.subject_id,
+                    item.remind_before_min.map(|value| value as i64),
+                    item.active as i64,
+                    item.term_id,
+                    item.created_at.to_rfc3339(),
+                    item.updated_at.to_rfc3339(),
+                    item.deleted_at.is_some() as i64
+                ],
+            )?;
+            if changed > 0 {
+                Self::event(
+                    &tx,
+                    actor,
+                    "schedule_item",
+                    "import",
+                    &item.id,
+                    None::<&ScheduleItem>,
+                    Some(item),
+                    now,
+                )?;
+                summary.schedule_items += 1;
+            } else {
+                summary.skipped += 1;
+            }
+        }
+        for exception in &bundle.schedule_exceptions {
+            let changed = tx.execute(
+                "INSERT OR IGNORE INTO schedule_exceptions(id,item_id,date,action,new_start,new_end,note) VALUES(?1,?2,?3,?4,?5,?6,?7)",
+                params![
+                    exception.id,
+                    exception.item_id,
+                    exception.date.to_string(),
+                    calendar::action_str(exception.action),
+                    exception.new_start,
+                    exception.new_end,
+                    exception.note
+                ],
+            )?;
+            if changed > 0 {
+                Self::event(
+                    &tx,
+                    actor,
+                    "schedule_exception",
+                    "import",
+                    &exception.id,
+                    None::<&ScheduleException>,
+                    Some(exception),
+                    now,
+                )?;
+                summary.schedule_exceptions += 1;
+            } else {
+                summary.skipped += 1;
+            }
+        }
+        for event in &bundle.academic_events {
+            if !Self::row_exists(&tx, "terms", &event.term_id)? {
+                summary.skipped += 1;
+                continue;
+            }
+            let changed = tx.execute(
+                "INSERT OR IGNORE INTO academic_events(id,term_id,kind,title,subject_id,start_at,end_at,all_day,prep_days,suppress_classes,notes) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
+                params![
+                    event.id,
+                    event.term_id,
+                    calendar::academic_str(event.kind),
+                    event.title,
+                    event.subject_id,
+                    event.start_at.to_rfc3339(),
+                    event.end_at.to_rfc3339(),
+                    event.all_day as i64,
+                    event.prep_days as i64,
+                    calendar::suppress_str(event.suppress_classes),
+                    event.notes
+                ],
+            )?;
+            if changed > 0 {
+                Self::event(
+                    &tx,
+                    actor,
+                    "academic_event",
+                    "import",
+                    &event.id,
+                    None::<&AcademicEvent>,
+                    Some(event),
+                    now,
+                )?;
+                summary.academic_events += 1;
+            } else {
+                summary.skipped += 1;
+            }
+        }
+        for conflict in &bundle.dismissed_conflicts {
+            let changed = tx.execute(
+                "INSERT OR IGNORE INTO dismissed_conflicts(task_id,date,rule_id,created_at) VALUES(?1,?2,?3,?4)",
+                params![
+                    conflict.task_id,
+                    conflict.date.to_string(),
+                    conflict.rule_id,
+                    conflict.created_at.to_rfc3339()
+                ],
+            )?;
+            if changed > 0 {
+                summary.dismissed_conflicts += 1;
             } else {
                 summary.skipped += 1;
             }

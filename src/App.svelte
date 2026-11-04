@@ -50,7 +50,7 @@
   let projectEditId = $state<string | null>(null);
   let goalEditId = $state<string | null>(null);
   let issueUrl = $state('');
-  let filterName = $state('');
+  let filterDraft = $state({ name: '', view: 'Inbox', query: '' });
   let projectDraft = $state({
     name: '',
     kind: 'coding' as ProjectKind,
@@ -243,7 +243,14 @@
         scheduled_local: editStart || null,
       },
     });
-    if (result) edit = null;
+    if (result) {
+      edit = null;
+      if (result.type === 'task_scheduled' && result.data.overlap.length) {
+        notice = `Heads up: this block overlaps ${result.data.overlap
+          .map((block) => block.title)
+          .join(', ')}.`;
+      }
+    }
   }
   async function remove(task: Task) {
     const result = await run({
@@ -273,10 +280,15 @@
     local_start: string | null,
     target: string | null,
   ) {
-    await run({
+    const result = await run({
       command: 'reschedule_task',
       input: { id, local_start, day: target, dry_run: false },
     });
+    if (result?.type === 'task_scheduled' && result.data.overlap.length) {
+      notice = `Heads up: this block overlaps ${result.data.overlap
+        .map((block) => block.title)
+        .join(', ')}.`;
+    }
   }
   function progressFor(goalId: string) {
     return (
@@ -410,15 +422,21 @@
     }
   }
   async function saveFilter() {
-    if (!filterName.trim()) return;
+    const name = filterDraft.name.trim();
+    if (!name) return;
     const result = await run({
       command: 'save_filter',
-      input: { name: filterName, view, query: search },
+      input: {
+        name,
+        view: filterDraft.view,
+        query: filterDraft.query.trim(),
+      },
     });
-    if (result) filterName = '';
+    if (result) filterDraft = { ...filterDraft, name: '', query: '' };
   }
   async function applyFilter(filter: SavedFilter) {
-    view = filter.view;
+    const targets = ['Today', 'Inbox', 'Planner', 'Completed'];
+    view = targets.includes(filter.view) ? filter.view : 'Inbox';
     search = filter.query;
     selected = 0;
     palette = false;
@@ -754,7 +772,7 @@
     const unlisteners: (() => void)[] = [];
     let disposed = false;
     async function setup() {
-      for (const name of ['daybridge:changed', 'daybridge:shown']) {
+      for (const name of ['dayboard:changed', 'dayboard:shown']) {
         const stop = await listen(name, () => {
           if (!document.hidden)
             void refresh().catch((e) => (error = String(e)));
@@ -764,7 +782,7 @@
         else unlisteners.push(stop);
       }
       const stop = await listen<string>(
-        'daybridge:error',
+        'dayboard:error',
         (e) => (error = e.payload),
       );
       if (disposed) stop();
@@ -823,7 +841,7 @@
 {#if capture}
   <main class="quick-window">
     <header>
-      <strong>◈ Daybridge <span> / Quick capture</span></strong><button
+      <strong>◈ Dayboard <span> / Quick capture</span></strong><button
         onclick={() => getCurrentWindow().hide()}
         aria-label="Close capture">Esc</button
       >
@@ -836,7 +854,7 @@
   <div class="app-shell">
     <aside class="sidebar">
       <a class="brand" href="#today" onclick={() => navigate('Today')}
-        ><span class="brand-mark">◈</span> daybridge<span class="version"
+        ><span class="brand-mark">◈</span> dayboard<span class="version"
           >β</span
         ></a
       >
@@ -990,20 +1008,28 @@
               <p>
                 <strong
                   >{snapshot.capacity.minutes}<small>
-                    / {snapshot.settings.max_minutes} min</small
+                    / {snapshot.capacity.cap_minutes} min</small
                   ></strong
                 ><span
-                  >{snapshot.capacity.count} of {snapshot.settings.max_tasks} tasks</span
+                  >{snapshot.capacity.available_minutes} min free · {snapshot
+                    .capacity.schedule_minutes} min scheduled · {snapshot
+                    .capacity.count}
+                  of {snapshot.settings.max_tasks} tasks</span
                 >
               </p>
               <progress
                 value={snapshot.capacity.minutes}
-                max={snapshot.settings.max_minutes}
+                max={Math.max(1, snapshot.capacity.cap_minutes)}
                 aria-label="Planned daily minutes"
               ></progress>
             </div>
             <div class="capacity-message">
-              {#if snapshot.capacity.over_count || snapshot.capacity.over_minutes}<strong
+              {#if snapshot.day_status.status === 'blocked'}<strong class="warning"
+                  >Blocked day.</strong
+                ><span
+                  >{snapshot.day_status.reasons[0]?.message ??
+                    'Classes and events claim this day.'}</span
+                >{:else if snapshot.capacity.over_count || snapshot.capacity.over_minutes}<strong
                   class="warning">A full plate.</strong
                 ><span>Move something to another day.</span>{:else}<strong
                   >Leave a little breathing room.</strong
@@ -1012,6 +1038,28 @@
             <button class="subtle" disabled={busy} onclick={plan}
               >Suggest a plan ↗</button
             >
+          </section>{/if}
+        {#if view === 'Today' && snapshot && snapshot.today_occurrences.length}<section
+            class="suggestions"
+            aria-label="Today's schedule"
+          >
+            <div class="section-title">
+              <h2>Today’s schedule</h2>
+              <span
+                >{snapshot.active_term?.name ?? 'No active term'} · {snapshot
+                  .day_status.status}</span
+              >
+            </div>
+            {#each snapshot.today_occurrences as block (block.item_id + block.start_utc)}<div>
+                <span
+                  >{block.title}
+                  <small
+                    >{timeLabel(block.start_utc)}–{timeLabel(block.end_utc)}{block.location
+                      ? ` · ${block.location}`
+                      : ''}{block.is_moved ? ' · moved' : ''}</small
+                  ></span
+                >
+              </div>{/each}
           </section>{/if}
         {#if suggestions}<section class="suggestions">
             <div class="section-title">
@@ -1283,19 +1331,29 @@
                 }}
               >
                 <input
-                  bind:value={filterName}
+                  bind:value={filterDraft.name}
                   aria-label="Filter name"
-                  placeholder="Name this view and search"
+                  placeholder="Filter name"
+                />
+                <select bind:value={filterDraft.view} aria-label="Filter view">
+                  {#each ['Today', 'Inbox', 'Planner', 'Completed'] as option (option)}<option
+                      value={option}>{option}</option
+                    >{/each}
+                </select>
+                <input
+                  bind:value={filterDraft.query}
+                  aria-label="Filter search"
+                  placeholder="Search text (optional)"
                 />
                 <button
                   type="submit"
-                  disabled={busy || !native || !filterName.trim()}
-                  >Save current filter</button
+                  disabled={busy || !native || !filterDraft.name.trim()}
+                  >Save filter</button
                 >
               </form>
               <p class="muted">
-                Saves <strong>{view}</strong>{search
-                  ? ` with search “${search}”`
+                Opens <strong>{filterDraft.view}</strong>{filterDraft.query
+                  ? ` with search “${filterDraft.query}”`
                   : ' with no search'}.
               </p>
               {#each snapshot?.saved_filters ?? [] as filter (filter.id)}
@@ -1752,7 +1810,7 @@
                 <input
                   bind:value={importPath}
                   aria-label="Import file path"
-                  placeholder="Path to a Daybridge JSON export"
+                  placeholder="Path to a Dayboard JSON export"
                 />
                 <button
                   type="submit"
@@ -2190,7 +2248,7 @@
         </div>
         <label class="bridge-toggle"
           ><input type="checkbox" bind:checked={preferences.autostart} />Start
-          Daybridge on login (packaged builds)</label
+          Dayboard on login (packaged builds)</label
         >
         <p class="muted">Development builds skip the OS autostart entry.</p>
         <fieldset class="bridge-settings">

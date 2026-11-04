@@ -1,6 +1,6 @@
-﻿# Feature: Daybridge desktop foundation
+# Feature: Dayboard desktop foundation
 
-Status: implemented foundation slice; manual platform acceptance pending | Spec 001 | Product name: Daybridge (original plan: Dayboard)
+Status: implemented foundation slice; manual platform acceptance pending | Spec 001 | Product name: Dayboard
 
 ## Scope
 

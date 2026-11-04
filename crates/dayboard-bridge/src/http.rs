@@ -92,7 +92,7 @@ fn handle(mut stream: TcpStream, bridge: Arc<Bridge>) -> std::io::Result<()> {
         return respond_json(
             &mut stream,
             200,
-            &json!({ "ok": true, "service": "daybridge-bridge" }),
+            &json!({ "ok": true, "service": "dayboard-bridge" }),
         );
     }
     if method == "GET" && path == "/events" {

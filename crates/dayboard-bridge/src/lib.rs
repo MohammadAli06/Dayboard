@@ -1,8 +1,8 @@
 pub mod http;
 
-use chrono::{NaiveDate, Utc};
+use chrono::{NaiveDate, TimeZone, Utc};
 use dayboard_core::{
-    model::{Actor, Command, Response, Snapshot, Task, UndoResult},
+    model::{Actor, Command, DayStatusKind, Response, Snapshot, Task, UndoOutcome},
     Core,
 };
 use serde_json::{json, Value};
@@ -77,6 +77,13 @@ impl Bridge {
                 | Command::Snapshot { .. }
                 | Command::ParseQuickAdd { .. }
                 | Command::PlanDay { .. }
+                | Command::ListScheduleItems
+                | Command::ListOccurrences { .. }
+                | Command::ListAcademicEvents { .. }
+                | Command::GetDayStatus { .. }
+                | Command::ListConflicts { .. }
+                | Command::WeekLoad { .. }
+                | Command::PreviewPrepPlan { .. }
         );
         let response = {
             let mut core = self
@@ -92,13 +99,13 @@ impl Bridge {
         }
         Ok(response)
     }
-    fn undo(&self) -> Result<Option<UndoResult>, String> {
+    fn undo(&self) -> Result<Option<UndoOutcome>, String> {
         let result = {
             let mut core = self
                 .core
                 .lock()
                 .map_err(|_| "Database lock unavailable".to_string())?;
-            core.undo_last(Actor::Jarvis, Utc::now())
+            core.undo_last_any(Actor::Jarvis, Utc::now())
                 .map_err(|error| error.to_string())?
         };
         if result.is_some() {
@@ -106,6 +113,143 @@ impl Bridge {
             self.hub.publish("{\"type\":\"changed\"}");
         }
         Ok(result)
+    }
+
+    fn rpc_typed(&self, command: &str, input: Value) -> Result<Value, (i64, String)> {
+        let mut value = json!({ "command": command });
+        if !input.is_null() {
+            value["input"] = input;
+        }
+        let command: Command = serde_json::from_value(value)
+            .map_err(|error| (-32602, format!("Invalid command: {error}")))?;
+        let response = self.execute(command).map_err(|error| (-32603, error))?;
+        serde_json::to_value(response).map_err(|error| (-32603, error.to_string()))
+    }
+    fn rpc_suggest(&self, params: &Value) -> Result<Value, (i64, String)> {
+        let task_id = params
+            .get("task_id")
+            .and_then(Value::as_str)
+            .ok_or((-32602, "Missing task_id".to_string()))?;
+        let snapshot = self
+            .snapshot_search(None)
+            .map_err(|error| (-32603, error))?;
+        let task = snapshot
+            .tasks
+            .iter()
+            .find(|task| task.id == task_id)
+            .cloned()
+            .ok_or((-32603, "Task not found".to_string()))?;
+        let mut date = snapshot.today;
+        for _ in 0..60 {
+            if let Response::DayStatus(status) = self
+                .execute(Command::GetDayStatus { date })
+                .map_err(|error| (-32603, error))?
+            {
+                if status.status != DayStatusKind::Blocked
+                    && status.available_min.saturating_sub(status.used_min) >= task.est_min
+                {
+                    return Ok(json!({
+                        "task_id": task.id,
+                        "title": task.title,
+                        "suggested_date": date,
+                        "available_min": status.available_min,
+                        "used_min": status.used_min
+                    }));
+                }
+            }
+            date += chrono::Duration::days(1);
+        }
+        Ok(json!({
+            "task_id": task.id,
+            "title": task.title,
+            "suggested_date": Value::Null
+        }))
+    }
+    fn rpc_free_slots(&self, params: &Value) -> Result<Value, (i64, String)> {
+        let snapshot = self
+            .snapshot_search(None)
+            .map_err(|error| (-32603, error))?;
+        let date = match params.get("date").and_then(Value::as_str) {
+            Some(text) => NaiveDate::parse_from_str(text, "%Y-%m-%d")
+                .map_err(|_| (-32602, "Invalid date".to_string()))?,
+            None => snapshot.today,
+        };
+        let tz: chrono_tz::Tz = snapshot
+            .settings
+            .timezone
+            .parse()
+            .map_err(|_| (-32603, "Invalid timezone".to_string()))?;
+        let (occurrences, events) = {
+            let mut core = self
+                .core
+                .lock()
+                .map_err(|_| (-32603, "Database lock unavailable".to_string()))?;
+            let occurrences = match core
+                .execute(
+                    Command::ListOccurrences {
+                        from: date,
+                        to: date,
+                    },
+                    Actor::Jarvis,
+                    Utc::now(),
+                )
+                .map_err(|error| (-32603, error.to_string()))?
+            {
+                Response::Occurrences(items) => items,
+                _ => Vec::new(),
+            };
+            let events = match core
+                .execute(
+                    Command::ListAcademicEvents {
+                        from: date,
+                        to: date,
+                    },
+                    Actor::Jarvis,
+                    Utc::now(),
+                )
+                .map_err(|error| (-32603, error.to_string()))?
+            {
+                Response::AcademicEvents(items) => items,
+                _ => Vec::new(),
+            };
+            (occurrences, events)
+        };
+        let mut busy: Vec<(chrono::DateTime<Utc>, chrono::DateTime<Utc>)> = occurrences
+            .iter()
+            .map(|occurrence| (occurrence.start_utc, occurrence.end_utc))
+            .collect();
+        for event in events {
+            if !event.all_day && event.start_at.with_timezone(&tz).date_naive() == date {
+                busy.push((event.start_at, event.end_at));
+            }
+        }
+        for task in &snapshot.tasks {
+            if let (Some(start), Some(end)) = (task.scheduled_start, task.scheduled_end) {
+                if start.with_timezone(&tz).date_naive() == date {
+                    busy.push((start, end));
+                }
+            }
+        }
+        let work_start = local_on(tz, date, snapshot.settings.work_start as u32)?;
+        let work_end = local_on(tz, date, snapshot.settings.work_end as u32)?;
+        busy.sort();
+        let mut slots = Vec::new();
+        let mut cursor = work_start;
+        for (start, end) in busy {
+            if end <= cursor || start >= work_end {
+                continue;
+            }
+            if start > cursor {
+                slots.push(json!({ "start": cursor, "end": start }));
+            }
+            if end > cursor {
+                cursor = end;
+            }
+        }
+        if cursor < work_end {
+            slots.push(json!({ "start": cursor, "end": work_end }));
+        }
+        Ok(json!({ "date": date, "slots": slots }))
     }
 
     pub fn handle_rpc(&self, request: &Value) -> Option<Value> {
@@ -117,7 +261,7 @@ impl Bridge {
             "initialize" => Ok(json!({
                 "protocolVersion": "2024-11-05",
                 "capabilities": { "tools": {} },
-                "serverInfo": { "name": "daybridge", "version": env!("CARGO_PKG_VERSION") }
+                "serverInfo": { "name": "dayboard", "version": env!("CARGO_PKG_VERSION") }
             })),
             "notifications/initialized" | "notifications/cancelled" => return None,
             "ping" => Ok(json!({})),
@@ -130,6 +274,16 @@ impl Bridge {
             "dayboard.dsa_weak_topics" => self.rpc_topics(),
             "dayboard.search" => self.rpc_search(&params),
             "dayboard.undo" => self.rpc_undo(),
+            "dayboard.list_schedule" => self.rpc_typed("list_schedule_items", Value::Null),
+            "dayboard.create_schedule_item" => {
+                self.rpc_typed("create_schedule_item", params.clone())
+            }
+            "dayboard.skip_occurrence" => self.rpc_typed("skip_occurrence", params.clone()),
+            "dayboard.get_day_status" => self.rpc_typed("get_day_status", params.clone()),
+            "dayboard.list_conflicts" => self.rpc_typed("list_conflicts", params.clone()),
+            "dayboard.suggest_reschedule" => self.rpc_suggest(&params),
+            "dayboard.preview_prep_plan" => self.rpc_typed("preview_prep_plan", params.clone()),
+            "dayboard.find_free_slots" => self.rpc_free_slots(&params),
             "dayboard.schema" => Ok(json!({
                 "command": schemars::schema_for!(Command),
                 "response": schemars::schema_for!(Response)
@@ -158,7 +312,7 @@ impl Bridge {
             .cloned()
             .unwrap_or_else(|| json!({}));
         let outcome = match name {
-            "daybridge_command" => {
+            "dayboard_command" => {
                 let value = arguments.get("command").cloned().unwrap_or(Value::Null);
                 let command: Command = serde_json::from_value(value)
                     .map_err(|error| (-32602, format!("Invalid command: {error}")))?;
@@ -166,11 +320,11 @@ impl Bridge {
                     .map(|response| serde_json::to_value(response).unwrap_or(Value::Null))
                     .map_err(|error| (-32603, error))
             }
-            "daybridge_today_summary" => self.rpc_summary(),
-            "daybridge_overdue" => self.rpc_overdue(),
-            "daybridge_weekly_stats" => self.rpc_weekly(),
-            "daybridge_dsa_weak_topics" => self.rpc_topics(),
-            "daybridge_search" => {
+            "dayboard_today_summary" => self.rpc_summary(),
+            "dayboard_overdue" => self.rpc_overdue(),
+            "dayboard_weekly_stats" => self.rpc_weekly(),
+            "dayboard_dsa_weak_topics" => self.rpc_topics(),
+            "dayboard_search" => {
                 let query = arguments
                     .get("query")
                     .and_then(Value::as_str)
@@ -178,7 +332,17 @@ impl Bridge {
                     .to_string();
                 self.rpc_search(&json!({ "query": query }))
             }
-            "daybridge_undo" => self.rpc_undo(),
+            "dayboard_undo" => self.rpc_undo(),
+            "dayboard_list_schedule" => self.rpc_typed("list_schedule_items", Value::Null),
+            "dayboard_create_schedule_item" => {
+                self.rpc_typed("create_schedule_item", arguments.clone())
+            }
+            "dayboard_skip_occurrence" => self.rpc_typed("skip_occurrence", arguments.clone()),
+            "dayboard_get_day_status" => self.rpc_typed("get_day_status", arguments.clone()),
+            "dayboard_list_conflicts" => self.rpc_typed("list_conflicts", arguments.clone()),
+            "dayboard_suggest_reschedule" => self.rpc_suggest(&arguments),
+            "dayboard_preview_prep_plan" => self.rpc_typed("preview_prep_plan", arguments.clone()),
+            "dayboard_find_free_slots" => self.rpc_free_slots(&arguments),
             _ => Err((-32601, format!("Unknown tool: {name}"))),
         };
         Ok(match outcome {
@@ -259,8 +423,8 @@ impl Bridge {
 pub fn tools() -> Value {
     json!([
         {
-            "name": "daybridge_command",
-            "description": "Run a typed Daybridge command (create_task, update_task, complete_task, reschedule_task, plan_day, create_project, ...).",
+            "name": "dayboard_command",
+            "description": "Run a typed Dayboard command (create_task, update_task, complete_task, reschedule_task, plan_day, create_project, ...).",
             "inputSchema": {
                 "type": "object",
                 "properties": { "command": { "type": "object" } },
@@ -268,27 +432,27 @@ pub fn tools() -> Value {
             }
         },
         {
-            "name": "daybridge_today_summary",
+            "name": "dayboard_today_summary",
             "description": "Today's planned tasks, capacity and inbox/overdue counts.",
             "inputSchema": { "type": "object", "properties": {} }
         },
         {
-            "name": "daybridge_overdue",
+            "name": "dayboard_overdue",
             "description": "Active tasks past their due time or planned day.",
             "inputSchema": { "type": "object", "properties": {} }
         },
         {
-            "name": "daybridge_weekly_stats",
+            "name": "dayboard_weekly_stats",
             "description": "Last 7 days: completed, created, carried, focus minutes, estimate accuracy and per-tag stats.",
             "inputSchema": { "type": "object", "properties": {} }
         },
         {
-            "name": "daybridge_dsa_weak_topics",
+            "name": "dayboard_dsa_weak_topics",
             "description": "DSA topics with unsolved problems or low average confidence.",
             "inputSchema": { "type": "object", "properties": {} }
         },
         {
-            "name": "daybridge_search",
+            "name": "dayboard_search",
             "description": "Full-text search across task titles, notes and tags.",
             "inputSchema": {
                 "type": "object",
@@ -297,11 +461,69 @@ pub fn tools() -> Value {
             }
         },
         {
-            "name": "daybridge_undo",
-            "description": "Undo the newest task mutation if the task has not changed since.",
+            "name": "dayboard_undo",
+            "description": "Undo the newest task, schedule, term or academic-event mutation if it has not changed since.",
             "inputSchema": { "type": "object", "properties": {} }
+        },
+        {
+            "name": "dayboard_list_schedule",
+            "description": "List recurring weekly schedule items for the active term.",
+            "inputSchema": { "type": "object", "properties": {} }
+        },
+        {
+            "name": "dayboard_create_schedule_item",
+            "description": "Create a recurring block (class, work, routine, other) with weekdays bitmask Mon=1..Sun=64 and HH:MM times.",
+            "inputSchema": { "type": "object", "properties": { "title": { "type": "string" }, "kind": { "type": "string" }, "weekdays": { "type": "number" }, "start_time": { "type": "string" }, "end_time": { "type": "string" }, "term_id": { "type": ["string", "null"] }, "location": { "type": ["string", "null"] }, "notes": { "type": ["string", "null"] }, "subject_id": { "type": ["string", "null"] }, "remind_before_min": { "type": ["number", "null"] } }, "required": ["title", "kind", "weekdays", "start_time", "end_time"] }
+        },
+        {
+            "name": "dayboard_skip_occurrence",
+            "description": "Skip one occurrence of a schedule item on a date (YYYY-MM-DD).",
+            "inputSchema": { "type": "object", "properties": { "item_id": { "type": "string" }, "date": { "type": "string" } }, "required": ["item_id", "date"] }
+        },
+        {
+            "name": "dayboard_get_day_status",
+            "description": "Day status, available and used minutes with rule reasons for a date.",
+            "inputSchema": { "type": "object", "properties": { "date": { "type": "string" } }, "required": ["date"] }
+        },
+        {
+            "name": "dayboard_list_conflicts",
+            "description": "Open day-load conflicts in a date range with suggested actions.",
+            "inputSchema": { "type": "object", "properties": { "from": { "type": "string" }, "to": { "type": "string" } }, "required": ["from", "to"] }
+        },
+        {
+            "name": "dayboard_suggest_reschedule",
+            "description": "Suggest the next day with enough free minutes for a task.",
+            "inputSchema": { "type": "object", "properties": { "task_id": { "type": "string" } }, "required": ["task_id"] }
+        },
+        {
+            "name": "dayboard_preview_prep_plan",
+            "description": "Preview study tasks for an exam spread across open days before it.",
+            "inputSchema": { "type": "object", "properties": { "event_id": { "type": "string" } }, "required": ["event_id"] }
+        },
+        {
+            "name": "dayboard_find_free_slots",
+            "description": "Free work-window slots for a date, minus classes, exams and scheduled tasks.",
+            "inputSchema": { "type": "object", "properties": { "date": { "type": "string" } } }
         }
     ])
+}
+
+fn local_on(
+    tz: chrono_tz::Tz,
+    date: NaiveDate,
+    hour: u32,
+) -> Result<chrono::DateTime<Utc>, (i64, String)> {
+    let naive = date
+        .and_hms_opt(hour, 0, 0)
+        .ok_or((-32602, "Invalid hour".to_string()))?;
+    tz.from_local_datetime(&naive)
+        .earliest()
+        .or_else(|| {
+            tz.from_local_datetime(&(naive + chrono::Duration::hours(1)))
+                .earliest()
+        })
+        .map(|at| at.with_timezone(&Utc))
+        .ok_or((-32602, "No such local time".to_string()))
 }
 
 fn compact_task(task: &Task) -> Value {

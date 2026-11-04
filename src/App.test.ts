@@ -64,9 +64,24 @@ beforeEach(() => {
       bridge_token: '',
       autostart: false,
       onboarded: true,
+      exam_day_new_task_cap: 0,
+      day_before_exam_capacity_pct: 50,
+      prep_window_days: 5,
+      non_study_cap_in_prep_pct: 60,
+      heavy_day_threshold_pct: 85,
+      calibrate_estimates: true,
+      calibration_min_samples: 5,
     },
     today: '2026-11-02',
-    capacity: { count: 1, minutes: 30, over_count: false, over_minutes: false },
+    capacity: {
+      count: 1,
+      minutes: 30,
+      over_count: false,
+      over_minutes: false,
+      available_minutes: 450,
+      schedule_minutes: 0,
+      cap_minutes: 480,
+    },
     tags: ['#college'],
     projects: [],
     goals: [],
@@ -93,6 +108,21 @@ beforeEach(() => {
       measured: 0,
       tag_stats: [],
     },
+    schedule_items: [],
+    today_occurrences: [],
+    week_occurrences: [],
+    terms: [],
+    active_term: null,
+    academic_events: [],
+    day_status: {
+      date: '2026-11-02',
+      status: 'normal',
+      available_min: 480,
+      used_min: 30,
+      reasons: [],
+    },
+    upcoming_exams: [],
+    conflicts: [],
   };
   mocked.invoke.mockImplementation(
     async (_name: string, args: { command: Command }) => {
@@ -257,16 +287,16 @@ describe('desktop task flows', () => {
         return { type: 'task', data: structuredClone(task) };
       },
     );
-    await user.type(screen.getByLabelText('Project name'), 'Daybridge');
+    await user.type(screen.getByLabelText('Project name'), 'Dayboard');
     await user.click(screen.getByRole('button', { name: /Add project/ }));
     await waitFor(() =>
-      expect(screen.getAllByText('Daybridge').length).toBeGreaterThan(0),
+      expect(screen.getAllByText('Dayboard').length).toBeGreaterThan(0),
     );
     expect(mocked.invoke).toHaveBeenCalledWith('dispatch', {
       command: {
         command: 'create_project',
         input: {
-          name: 'Daybridge',
+          name: 'Dayboard',
           kind: 'coding',
           repo_path: null,
           branch: null,
@@ -413,5 +443,44 @@ describe('desktop task flows', () => {
     await waitFor(() =>
       expect(screen.queryByText('Welcome to Daybridge')).toBeNull(),
     );
+  });
+  it('saves a filter for an explicit view and applies it', async () => {
+    const user = userEvent.setup();
+    render(App);
+    await screen.findByText('Read a chapter');
+    await user.click(screen.getByRole('button', { name: /Projects/ }));
+    mocked.invoke.mockImplementation(
+      async (_name: string, args: { command: Command }) => {
+        if (args.command.command === 'snapshot')
+          return { type: 'snapshot', data: structuredClone(snapshot) };
+        if (args.command.command === 'save_filter') {
+          const filter = {
+            id: '01FILTER',
+            name: args.command.input.name,
+            view: args.command.input.view,
+            query: args.command.input.query,
+            created_at: '2026-11-02T00:00:00Z',
+          };
+          snapshot.saved_filters = [filter];
+          return { type: 'filter', data: filter };
+        }
+        return { type: 'task', data: structuredClone(task) };
+      },
+    );
+    await user.type(screen.getByLabelText('Filter name'), 'Inbox graph');
+    await user.selectOptions(screen.getByLabelText('Filter view'), 'Inbox');
+    await user.type(screen.getByLabelText('Filter search'), 'graph');
+    await user.click(screen.getByRole('button', { name: /Save filter/ }));
+    await waitFor(() => expect(screen.getByText('Inbox graph')).toBeTruthy());
+    await user.click(screen.getByRole('button', { name: 'Apply' }));
+    await waitFor(() =>
+      expect(
+        (screen.getByLabelText('Search all tasks') as HTMLInputElement).value,
+      ).toBe('graph'),
+    );
+    expect(screen.getByText('Out of your head. Into here.')).toBeTruthy();
+    expect(mocked.invoke).toHaveBeenCalledWith('dispatch', {
+      command: { command: 'snapshot', input: { search: 'graph' } },
+    });
   });
 });

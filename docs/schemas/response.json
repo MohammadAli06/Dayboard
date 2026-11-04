@@ -70,6 +70,22 @@
       "type": "object",
       "properties": {
         "data": {
+          "$ref": "#/$defs/TaskScheduled"
+        },
+        "type": {
+          "type": "string",
+          "const": "task_scheduled"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "data": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/Task"
@@ -292,12 +308,301 @@
         "type",
         "data"
       ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/ScheduleItem"
+        },
+        "type": {
+          "type": "string",
+          "const": "schedule_item"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ScheduleItem"
+          }
+        },
+        "type": {
+          "type": "string",
+          "const": "schedule_items"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Occurrence"
+          }
+        },
+        "type": {
+          "type": "string",
+          "const": "occurrences"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/Term"
+        },
+        "type": {
+          "type": "string",
+          "const": "term"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Term"
+          }
+        },
+        "type": {
+          "type": "string",
+          "const": "terms"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/AcademicEvent"
+        },
+        "type": {
+          "type": "string",
+          "const": "academic_event"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AcademicEvent"
+          }
+        },
+        "type": {
+          "type": "string",
+          "const": "academic_events"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/DayStatus"
+        },
+        "type": {
+          "type": "string",
+          "const": "day_status"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Conflict"
+          }
+        },
+        "type": {
+          "type": "string",
+          "const": "conflicts"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/PrepPlan"
+        },
+        "type": {
+          "type": "string",
+          "const": "prep_plan"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/WeekLoadEntry"
+          }
+        },
+        "type": {
+          "type": "string",
+          "const": "week_load"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/UndoOutcome"
+        },
+        "type": {
+          "type": "string",
+          "const": "undone"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ]
     }
   ],
   "$defs": {
+    "AcademicEvent": {
+      "type": "object",
+      "properties": {
+        "all_day": {
+          "type": "boolean"
+        },
+        "end_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/AcademicKind"
+        },
+        "notes": {
+          "type": "string"
+        },
+        "prep_days": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "start_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "subject_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "suppress_classes": {
+          "$ref": "#/$defs/SuppressClasses"
+        },
+        "term_id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "term_id",
+        "kind",
+        "title",
+        "start_at",
+        "end_at",
+        "all_day",
+        "prep_days",
+        "suppress_classes",
+        "notes"
+      ]
+    },
+    "AcademicKind": {
+      "type": "string",
+      "enum": [
+        "midterm",
+        "practical",
+        "oral",
+        "final",
+        "assignment_due",
+        "holiday",
+        "other"
+      ]
+    },
     "Capacity": {
       "type": "object",
       "properties": {
+        "available_minutes": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "cap_minutes": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
         "count": {
           "type": "integer",
           "format": "uint",
@@ -313,13 +618,67 @@
         },
         "over_minutes": {
           "type": "boolean"
+        },
+        "schedule_minutes": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
         }
       },
       "required": [
         "count",
         "minutes",
         "over_count",
-        "over_minutes"
+        "over_minutes",
+        "available_minutes",
+        "schedule_minutes",
+        "cap_minutes"
+      ]
+    },
+    "Conflict": {
+      "type": "object",
+      "properties": {
+        "date": {
+          "type": "string",
+          "format": "date"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "rule_id": {
+          "type": "string"
+        },
+        "suggestion": {
+          "$ref": "#/$defs/ConflictSuggestion"
+        },
+        "task_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id",
+        "date",
+        "rule_id",
+        "reason",
+        "suggestion"
+      ]
+    },
+    "ConflictSuggestion": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/SuggestionAction"
+        },
+        "target_date": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        }
+      },
+      "required": [
+        "action"
       ]
     },
     "DailyReview": {
@@ -352,6 +711,66 @@
         "day",
         "note",
         "created_at"
+      ]
+    },
+    "DayReason": {
+      "type": "object",
+      "properties": {
+        "message": {
+          "type": "string"
+        },
+        "rule_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "rule_id",
+        "message"
+      ]
+    },
+    "DayStatus": {
+      "type": "object",
+      "properties": {
+        "available_min": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "date": {
+          "type": "string",
+          "format": "date"
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DayReason"
+          }
+        },
+        "status": {
+          "$ref": "#/$defs/DayStatusKind"
+        },
+        "used_min": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "date",
+        "status",
+        "available_min",
+        "used_min",
+        "reasons"
+      ]
+    },
+    "DayStatusKind": {
+      "type": "string",
+      "enum": [
+        "free",
+        "normal",
+        "heavy",
+        "blocked",
+        "prep_critical"
       ]
     },
     "Deadline": {
@@ -725,6 +1144,58 @@
         "due"
       ]
     },
+    "Occurrence": {
+      "type": "object",
+      "properties": {
+        "date": {
+          "type": "string",
+          "format": "date"
+        },
+        "end_utc": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "is_moved": {
+          "type": "boolean"
+        },
+        "item_id": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/ScheduleKind"
+        },
+        "location": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "remind_before_min": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
+        "start_utc": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "item_id",
+        "title",
+        "kind",
+        "date",
+        "start_utc",
+        "end_utc",
+        "is_moved"
+      ]
+    },
     "ParsedTask": {
       "type": "object",
       "properties": {
@@ -778,6 +1249,28 @@
         "energy",
         "est_min",
         "tags"
+      ]
+    },
+    "PrepPlan": {
+      "type": "object",
+      "properties": {
+        "event_id": {
+          "type": "string"
+        },
+        "event_title": {
+          "type": "string"
+        },
+        "tasks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ProposedTask"
+          }
+        }
+      },
+      "required": [
+        "event_id",
+        "event_title",
+        "tasks"
       ]
     },
     "Project": {
@@ -843,6 +1336,47 @@
         "archived"
       ]
     },
+    "ProposedTask": {
+      "type": "object",
+      "properties": {
+        "day": {
+          "type": "string",
+          "format": "date"
+        },
+        "est_min": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "subject_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "syllabus_item_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "day",
+        "est_min",
+        "tags"
+      ]
+    },
     "SavedFilter": {
       "type": "object",
       "properties": {
@@ -871,6 +1405,99 @@
         "created_at"
       ]
     },
+    "ScheduleItem": {
+      "type": "object",
+      "properties": {
+        "active": {
+          "type": "boolean"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "deleted_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "end_time": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/ScheduleKind"
+        },
+        "location": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "remind_before_min": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
+        "start_time": {
+          "type": "string"
+        },
+        "subject_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "term_id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "weekdays": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "kind",
+        "weekdays",
+        "start_time",
+        "end_time",
+        "active",
+        "term_id",
+        "created_at",
+        "updated_at"
+      ]
+    },
+    "ScheduleKind": {
+      "type": "string",
+      "enum": [
+        "class",
+        "work",
+        "routine",
+        "other"
+      ]
+    },
     "Settings": {
       "type": "object",
       "properties": {
@@ -893,6 +1520,34 @@
           "type": "string",
           "default": ""
         },
+        "calibrate_estimates": {
+          "type": "boolean",
+          "default": true
+        },
+        "calibration_min_samples": {
+          "type": "integer",
+          "format": "uint32",
+          "default": 5,
+          "minimum": 0
+        },
+        "day_before_exam_capacity_pct": {
+          "type": "integer",
+          "format": "uint32",
+          "default": 50,
+          "minimum": 0
+        },
+        "exam_day_new_task_cap": {
+          "type": "integer",
+          "format": "uint32",
+          "default": 0,
+          "minimum": 0
+        },
+        "heavy_day_threshold_pct": {
+          "type": "integer",
+          "format": "uint32",
+          "default": 85,
+          "minimum": 0
+        },
         "max_minutes": {
           "type": "integer",
           "format": "uint32",
@@ -903,9 +1558,21 @@
           "format": "uint32",
           "minimum": 0
         },
+        "non_study_cap_in_prep_pct": {
+          "type": "integer",
+          "format": "uint32",
+          "default": 60,
+          "minimum": 0
+        },
         "onboarded": {
           "type": "boolean",
           "default": false
+        },
+        "prep_window_days": {
+          "type": "integer",
+          "format": "uint32",
+          "default": 5,
+          "minimum": 0
         },
         "timezone": {
           "type": "string"
@@ -934,6 +1601,12 @@
     "Snapshot": {
       "type": "object",
       "properties": {
+        "academic_events": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AcademicEvent"
+          }
+        },
         "active_focus": {
           "anyOf": [
             {
@@ -944,14 +1617,33 @@
             }
           ]
         },
+        "active_term": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Term"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "capacity": {
           "$ref": "#/$defs/Capacity"
+        },
+        "conflicts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Conflict"
+          }
         },
         "daily_reviews": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/DailyReview"
           }
+        },
+        "day_status": {
+          "$ref": "#/$defs/DayStatus"
         },
         "deadlines": {
           "type": "array",
@@ -1013,6 +1705,12 @@
             "$ref": "#/$defs/SavedFilter"
           }
         },
+        "schedule_items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ScheduleItem"
+          }
+        },
         "settings": {
           "$ref": "#/$defs/Settings"
         },
@@ -1046,9 +1744,33 @@
             "$ref": "#/$defs/Template"
           }
         },
+        "terms": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Term"
+          }
+        },
         "today": {
           "type": "string",
           "format": "date"
+        },
+        "today_occurrences": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Occurrence"
+          }
+        },
+        "upcoming_exams": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AcademicEvent"
+          }
+        },
+        "week_occurrences": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Occurrence"
+          }
         },
         "weekly_stats": {
           "$ref": "#/$defs/WeeklyStats"
@@ -1074,7 +1796,15 @@
         "habits",
         "habit_streaks",
         "daily_reviews",
-        "weekly_stats"
+        "weekly_stats",
+        "schedule_items",
+        "today_occurrences",
+        "week_occurrences",
+        "terms",
+        "academic_events",
+        "day_status",
+        "upcoming_exams",
+        "conflicts"
       ]
     },
     "Status": {
@@ -1112,6 +1842,22 @@
         "id",
         "name",
         "created_at"
+      ]
+    },
+    "SuggestionAction": {
+      "type": "string",
+      "enum": [
+        "move",
+        "defer",
+        "split"
+      ]
+    },
+    "SuppressClasses": {
+      "type": "string",
+      "enum": [
+        "none",
+        "overlap_only",
+        "whole_day"
       ]
     },
     "SyllabusItem": {
@@ -1319,6 +2065,24 @@
         "created_at"
       ]
     },
+    "TaskScheduled": {
+      "type": "object",
+      "properties": {
+        "overlap": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Occurrence"
+          }
+        },
+        "task": {
+          "$ref": "#/$defs/Task"
+        }
+      },
+      "required": [
+        "task",
+        "overlap"
+      ]
+    },
     "Template": {
       "type": "object",
       "properties": {
@@ -1384,6 +2148,44 @@
         "created_at"
       ]
     },
+    "Term": {
+      "type": "object",
+      "properties": {
+        "active": {
+          "type": "boolean"
+        },
+        "archived": {
+          "type": "boolean"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "end_date": {
+          "type": "string",
+          "format": "date"
+        },
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "start_date": {
+          "type": "string",
+          "format": "date"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "start_date",
+        "end_date",
+        "active",
+        "archived",
+        "created_at"
+      ]
+    },
     "TopicCoverage": {
       "type": "object",
       "properties": {
@@ -1410,6 +2212,59 @@
         "total",
         "solved",
         "average_confidence"
+      ]
+    },
+    "UndoOutcome": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "type": "string"
+        },
+        "entity": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "entity",
+        "action",
+        "id"
+      ]
+    },
+    "WeekLoadEntry": {
+      "type": "object",
+      "properties": {
+        "available_min": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "date": {
+          "type": "string",
+          "format": "date"
+        },
+        "schedule_min": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "status": {
+          "$ref": "#/$defs/DayStatusKind"
+        },
+        "used_min": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "date",
+        "status",
+        "available_min",
+        "used_min",
+        "schedule_min"
       ]
     },
     "WeeklyStats": {

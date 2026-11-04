@@ -26,7 +26,7 @@ fn rpc_initialize_tools_command_summary_and_undo() {
     let init = bridge
         .handle_rpc(&json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {} }))
         .unwrap();
-    assert_eq!(init["result"]["serverInfo"]["name"], "daybridge");
+    assert_eq!(init["result"]["serverInfo"]["name"], "dayboard");
 
     let tools = bridge
         .handle_rpc(&json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/list" }))
@@ -39,7 +39,7 @@ fn rpc_initialize_tools_command_summary_and_undo() {
             "id": 3,
             "method": "tools/call",
             "params": {
-                "name": "daybridge_command",
+                "name": "dayboard_command",
                 "arguments": {
                     "command": {
                         "command": "create_task",

@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Daybridge",
+  "productName": "Dayboard",
   "version": "0.1.0",
-  "identifier": "dev.daybridge.desktop",
+  "identifier": "dev.dayboard.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://127.0.0.1:1420",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Daybridge",
+        "title": "Dayboard",
         "width": 1180,
         "height": 800,
         "minWidth": 760,
@@ -41,7 +41,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "publisher": "Daybridge",
+    "publisher": "Dayboard",
     "copyright": "MIT licensed",
     "shortDescription": "A quiet local-first task planner",
     "longDescription": "A quiet, local-first desktop task planner. Capture, plan and finish your day with a SQLite file on your device. No account, cloud service, telemetry or AI subscription is required.",

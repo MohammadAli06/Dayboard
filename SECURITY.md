@@ -1,6 +1,6 @@
 # Security
 
-Daybridge is an early-development local application, not a hardened multi-user service. SQLite and its audit log contain unencrypted personal information. Protect your OS account and backups.
+Dayboard is an early-development local application, not a hardened multi-user service. SQLite and its audit log contain unencrypted personal information. Protect your OS account and backups.
 
 Do not post real databases, access tokens or sensitive task notes in public issues. If the repository owner enables GitHub private vulnerability reporting, use **Security → Report a vulnerability**. Otherwise ask the maintainer for a private reporting channel without disclosing exploit details or private data publicly.
 

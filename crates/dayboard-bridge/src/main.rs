@@ -5,16 +5,16 @@ use std::{path::PathBuf, sync::Arc};
 fn usage() -> &'static str {
     "Usage: dayboard-bridge --db <path> [--port <port> --token <token>]\n\n\
 Without --port, serves newline-delimited MCP JSON-RPC on stdio.\n\
-The database defaults to $DAYBRIDGE_DB, then $DAYBRIDGE_DATA_DIR/daybridge.sqlite3."
+The database defaults to $DAYBOARD_DB, then $DAYBOARD_DATA_DIR/dayboard.sqlite3."
 }
 
 fn main() {
-    let mut db = std::env::var("DAYBRIDGE_DB")
+    let mut db = std::env::var("DAYBOARD_DB")
         .ok()
         .map(PathBuf::from)
         .or_else(|| {
-            std::env::var_os("DAYBRIDGE_DATA_DIR")
-                .map(|dir| PathBuf::from(dir).join("daybridge.sqlite3"))
+            std::env::var_os("DAYBOARD_DATA_DIR")
+                .map(|dir| PathBuf::from(dir).join("dayboard.sqlite3"))
         });
     let mut port: Option<u16> = None;
     let mut token = String::new();
@@ -52,7 +52,7 @@ fn main() {
             eprintln!("Bridge failed to start: {error}");
             std::process::exit(1);
         });
-        eprintln!("Daybridge bridge listening on http://127.0.0.1:{bound}");
+        eprintln!("Dayboard bridge listening on http://127.0.0.1:{bound}");
         loop {
             std::thread::park();
         }

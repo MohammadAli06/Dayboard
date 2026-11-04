@@ -7,6 +7,7 @@ pub trait Planner {
         day: NaiveDate,
         settings: &Settings,
         energy: Option<Energy>,
+        budget_min: u32,
     ) -> Vec<Task>;
 }
 pub struct RulePlanner;
@@ -17,6 +18,7 @@ impl Planner for RulePlanner {
         day: NaiveDate,
         settings: &Settings,
         energy: Option<Energy>,
+        budget_min: u32,
     ) -> Vec<Task> {
         let mut candidates: Vec<_> = tasks
             .iter()
@@ -33,6 +35,7 @@ impl Planner for RulePlanner {
         let mut result = vec![];
         for t in candidates {
             if result.len() < settings.max_tasks as usize
+                && minutes + t.est_min <= budget_min
                 && minutes + t.est_min <= settings.max_minutes
             {
                 minutes += t.est_min;
@@ -42,16 +45,25 @@ impl Planner for RulePlanner {
         result
     }
 }
-pub fn capacity(tasks: &[Task], day: NaiveDate, settings: &Settings) -> Capacity {
+pub fn capacity(
+    tasks: &[Task],
+    day: NaiveDate,
+    settings: &Settings,
+    cap_minutes: u32,
+    schedule_minutes: u32,
+) -> Capacity {
     let selected: Vec<_> = tasks
         .iter()
         .filter(|t| t.deleted_at.is_none() && t.status.active() && t.planned_day == Some(day))
         .collect();
-    let minutes = selected.iter().map(|t| t.est_min).sum();
+    let minutes: u32 = selected.iter().map(|t| t.est_min).sum();
     Capacity {
         count: selected.len(),
         minutes,
         over_count: selected.len() > settings.max_tasks as usize,
-        over_minutes: minutes > settings.max_minutes,
+        over_minutes: minutes > cap_minutes,
+        available_minutes: cap_minutes.saturating_sub(minutes),
+        schedule_minutes,
+        cap_minutes,
     }
 }

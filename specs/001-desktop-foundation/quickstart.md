@@ -8,6 +8,6 @@
 6. Search for part of a title or tag, including punctuation. Soft-delete and immediately restore a task.
 7. Press Ctrl/Cmd+Shift+Space, capture from the small window, then reopen the main app from the tray and confirm the change.
 8. Schedule a reminder a minute ahead, close the main window to the tray, and verify native delivery. Quit/reopen and verify it is not redelivered. Test blocked notification permissions separately.
-9. Quit from tray and reopen; verify persistence. Use a temporary `DAYBRIDGE_DATA_DIR` when testing so real data is not affected.
+9. Quit from tray and reopen; verify persistence. Use a temporary `DAYBOARD_DATA_DIR` when testing so real data is not affected.
 
 Automated tests cover the deterministic core and DOM interactions. Native permission behavior, actual hotkey/tray interaction, display scaling and performance need real-OS verification; see docs/validation.md for what was actually run.

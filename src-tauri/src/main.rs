@@ -1,7 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use chrono::{TimeZone, Utc};
 use dayboard_core::{
-    model::{Actor, Command, ImportSummary, Response},
+    model::{Actor, Command, ImportSummary, Response, WakeupKind},
     Core,
 };
 use std::sync::Arc;
@@ -26,6 +26,13 @@ async fn dispatch(
             | Command::Snapshot { .. }
             | Command::ParseQuickAdd { .. }
             | Command::PlanDay { .. }
+            | Command::ListScheduleItems
+            | Command::ListOccurrences { .. }
+            | Command::ListAcademicEvents { .. }
+            | Command::GetDayStatus { .. }
+            | Command::ListConflicts { .. }
+            | Command::WeekLoad { .. }
+            | Command::PreviewPrepPlan { .. }
     );
     let autostart = match &command {
         Command::SaveSettings(settings) => Some(settings.autostart),
@@ -47,12 +54,12 @@ async fn dispatch(
     };
     if let Some(remaining) = remaining {
         state.changed.notify_one();
-        let _ = app.emit("daybridge:changed", ());
+        let _ = app.emit("dayboard:changed", ());
         update_tray(&app, remaining);
     }
     if let Some(enabled) = autostart {
         if let Err(error) = apply_autostart(enabled) {
-            let _ = app.emit("daybridge:error", format!("Autostart: {error}"));
+            let _ = app.emit("dayboard:error", format!("Autostart: {error}"));
         }
     }
     Ok(response)
@@ -62,7 +69,7 @@ fn show(app: &tauri::AppHandle, label: &str) {
         let _ = w.show();
         let _ = w.unminimize();
         let _ = w.set_focus();
-        let _ = w.emit("daybridge:shown", ());
+        let _ = w.emit("dayboard:shown", ());
     }
 }
 fn apply_autostart(enabled: bool) -> Result<(), String> {
@@ -80,11 +87,11 @@ fn write_autostart(exe: &std::path::Path, enabled: bool) -> Result<(), String> {
     let key = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
     let mut command = std::process::Command::new("reg");
     if enabled {
-        command.args(["add", key, "/v", "Daybridge", "/t", "REG_SZ", "/d"]);
+        command.args(["add", key, "/v", "Dayboard", "/t", "REG_SZ", "/d"]);
         command.arg(exe.as_os_str());
         command.args(["/f"]);
     } else {
-        command.args(["delete", key, "/v", "Daybridge", "/f"]);
+        command.args(["delete", key, "/v", "Dayboard", "/f"]);
     }
     let status = command
         .stdout(std::process::Stdio::null())
@@ -100,7 +107,7 @@ fn write_autostart(exe: &std::path::Path, enabled: bool) -> Result<(), String> {
 fn write_autostart(exe: &std::path::Path, enabled: bool) -> Result<(), String> {
     let home = std::env::var_os("HOME").ok_or("HOME is not set")?;
     let path =
-        std::path::PathBuf::from(home).join("Library/LaunchAgents/dev.daybridge.desktop.plist");
+        std::path::PathBuf::from(home).join("Library/LaunchAgents/dev.dayboard.desktop.plist");
     if enabled {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
@@ -114,7 +121,7 @@ fn write_autostart(exe: &std::path::Path, enabled: bool) -> Result<(), String> {
             "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
 <!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n\
 <plist version=\"1.0\"><dict>\n\
-<key>Label</key><string>dev.daybridge.desktop</string>\n\
+<key>Label</key><string>dev.dayboard.desktop</string>\n\
 <key>ProgramArguments</key><array><string>{escaped}</string></array>\n\
 <key>RunAtLoad</key><true/>\n\
 </dict></plist>\n"
@@ -128,14 +135,14 @@ fn write_autostart(exe: &std::path::Path, enabled: bool) -> Result<(), String> {
 #[cfg(all(unix, not(target_os = "macos")))]
 fn write_autostart(exe: &std::path::Path, enabled: bool) -> Result<(), String> {
     let home = std::env::var_os("HOME").ok_or("HOME is not set")?;
-    let path = std::path::PathBuf::from(home).join(".config/autostart/daybridge.desktop");
+    let path = std::path::PathBuf::from(home).join(".config/autostart/dayboard.desktop");
     if enabled {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
         }
         let exec = exe.to_string_lossy().replace('"', "\\\"");
         let entry = format!(
-            "[Desktop Entry]\nType=Application\nName=Daybridge\nExec=\"{exec}\"\nX-GNOME-Autostart-enabled=true\n"
+            "[Desktop Entry]\nType=Application\nName=Dayboard\nExec=\"{exec}\"\nX-GNOME-Autostart-enabled=true\n"
         );
         std::fs::write(&path, entry).map_err(|error| error.to_string())?;
     } else if path.exists() {
@@ -149,7 +156,7 @@ fn rolling_backup(core: &Core, data: &std::path::Path) {
         return;
     }
     let stamp = Utc::now().format("%Y-%m-%d").to_string();
-    let path = directory.join(format!("daybridge-{stamp}.sqlite3"));
+    let path = directory.join(format!("dayboard-{stamp}.sqlite3"));
     if !path.exists() {
         let _ = core.backup_to(&path);
     }
@@ -181,7 +188,7 @@ async fn export_data(state: tauri::State<'_, State>, kind: String) -> Result<Str
     let directory = state.data_dir.join("exports");
     std::fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
     let stamp = Utc::now().format("%Y%m%d-%H%M%S");
-    let path = directory.join(format!("daybridge-{stamp}.{extension}"));
+    let path = directory.join(format!("dayboard-{stamp}.{extension}"));
     std::fs::write(&path, contents).map_err(|e| e.to_string())?;
     Ok(path.display().to_string())
 }
@@ -200,7 +207,7 @@ async fn import_data(
         (summary, core.today_count(Utc::now()).unwrap_or(0))
     };
     state.changed.notify_one();
-    let _ = app.emit("daybridge:changed", ());
+    let _ = app.emit("dayboard:changed", ());
     update_tray(&app, remaining);
     Ok(summary)
 }
@@ -256,13 +263,13 @@ fn open_in_vscode(path: String) -> Result<(), String> {
 }
 fn update_tray(app: &tauri::AppHandle, remaining: usize) {
     let icon = remaining_icon(remaining);
-    let tooltip = format!("Daybridge · {remaining} remaining today");
+    let tooltip = format!("Dayboard · {remaining} remaining today");
     let title = remaining.to_string();
     let handle = app.clone();
     // Tray handles are owned by the UI thread; marshalling the update keeps a
     // background reminder from blocking on Win32 SendMessage.
     let _ = app.run_on_main_thread(move || {
-        if let Some(tray) = handle.tray_by_id("daybridge") {
+        if let Some(tray) = handle.tray_by_id("dayboard") {
             let _ = tray.set_icon(Some(icon));
             let _ = tray.set_tooltip(Some(tooltip));
             let _ = tray.set_title(Some(title));
@@ -322,20 +329,20 @@ fn main() {
             import_data
         ])
         .setup(|app| {
-            let data = std::env::var_os("DAYBRIDGE_DATA_DIR").map(std::path::PathBuf::from).unwrap_or(app.path().app_data_dir()?); std::fs::create_dir_all(&data)?;
-            let mut core = Core::open(data.join("daybridge.sqlite3"))?;
+            let data = std::env::var_os("DAYBOARD_DATA_DIR").map(std::path::PathBuf::from).unwrap_or(app.path().app_data_dir()?); std::fs::create_dir_all(&data)?;
+            let mut core = Core::open(data.join("dayboard.sqlite3"))?;
             core.execute(Command::Rollover { dry_run: false }, Actor::Ui, Utc::now())?;
             rolling_backup(&core, &data);
             let settings = core.settings()?;
             let remaining = core.today_count(Utc::now()).unwrap_or(0);
             let changed = Arc::new(tokio::sync::Notify::new());
             app.manage(State {core: tokio::sync::Mutex::new(core), changed: changed.clone(), data_dir: data.clone()});
-            let open = tauri::menu::MenuItem::with_id(app, "open", "Open Daybridge", true, None::<&str>)?;
+            let open = tauri::menu::MenuItem::with_id(app, "open", "Open Dayboard", true, None::<&str>)?;
             let capture = tauri::menu::MenuItem::with_id(app, "capture", "Quick capture", true, None::<&str>)?;
             let quit = tauri::menu::MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let menu = tauri::menu::Menu::with_items(app, &[&open, &capture, &quit])?;
             let icon = app.default_window_icon().cloned().ok_or("Missing application icon")?;
-            tauri::tray::TrayIconBuilder::with_id("daybridge").icon(icon).menu(&menu).show_menu_on_left_click(true)
+            tauri::tray::TrayIconBuilder::with_id("dayboard").icon(icon).menu(&menu).show_menu_on_left_click(true)
                 .on_menu_event(|app, event| match event.id.as_ref() {"open" => show(app, "main"), "capture" => show(app, "capture"), "quit" => { let state = app.state::<State>(); if let Ok(core) = state.core.try_lock() { let _ = core.checkpoint(); } app.exit(0);}, _ => ()}).build(app)?;
             if let Err(e) = app.global_shortcut().register("CommandOrControl+Shift+Space") { eprintln!("Quick capture shortcut unavailable: {e}. Use the tray menu."); }
             update_tray(app.handle(), remaining);
@@ -344,19 +351,19 @@ fn main() {
                 let changed_for_bridge = changed.clone();
                 let notifier: dayboard_bridge::Notifier = Arc::new(move |_| {
                     changed_for_bridge.notify_one();
-                    let _ = handle.emit("daybridge:changed", ());
+                    let _ = handle.emit("dayboard:changed", ());
                 });
                 match dayboard_bridge::start(
-                    &data.join("daybridge.sqlite3"),
+                    &data.join("dayboard.sqlite3"),
                     settings.bridge_port,
                     settings.bridge_token.clone(),
                     notifier,
                 ) {
-                    Ok(port) => eprintln!("Daybridge bridge listening on 127.0.0.1:{port}"),
+                    Ok(port) => eprintln!("Dayboard bridge listening on 127.0.0.1:{port}"),
                     Err(error) => {
-                        eprintln!("Daybridge bridge failed to start: {error}");
+                        eprintln!("Dayboard bridge failed to start: {error}");
                         let _ = app.emit(
-                            "daybridge:error",
+                            "dayboard:error",
                             format!("Bridge failed to start: {error}"),
                         );
                     }
@@ -375,33 +382,52 @@ fn main() {
                         let tomorrow = now.with_timezone(&tz).date_naive().succ_opt().unwrap();
                         // Midnight can be skipped in some zones; choose the first valid local hour.
                         let boundary = (0..24).find_map(|h| tz.from_local_datetime(&tomorrow.and_hms_opt(h,0,0).unwrap()).earliest()).unwrap().with_timezone(&Utc);
-                        (core.next_reminder().ok().flatten(), boundary, rolled, core.today_count(now).unwrap_or(0))
+                        (core.next_wakeup().ok().flatten(), boundary, rolled, core.today_count(now).unwrap_or(0))
                     };
-                    if rolled { let _ = handle.emit("daybridge:changed", ()); }
+                    if rolled { let _ = handle.emit("dayboard:changed", ()); }
                     update_tray(&handle, remaining);
-                    let wake = next.as_ref().map(|(_,at)| *at).unwrap_or(midnight).min(midnight);
+                    let wake = next.as_ref().map(|wakeup| wakeup.at).unwrap_or(midnight).min(midnight);
                     let delay = (wake - Utc::now()).to_std().unwrap_or_default();
                     tokio::select! { _ = changed.notified() => continue, _ = tokio::time::sleep(delay) => {} }
                     let now = Utc::now();
                     let due = {
                         let state = handle.state::<State>();
                         let core = state.core.lock().await;
-                        match core.next_reminder() { Ok(Some((task, at))) if at <= now => Some(task), _ => None }
+                        match core.next_wakeup() { Ok(Some(wakeup)) if wakeup.at <= now => Some(wakeup), _ => None }
                     };
                     let mut storage_failed = false;
-                    if let Some(task) = due {
+                    if let Some(wakeup) = due {
                         // Deliver outside the lock: notification and tray work can
                         // block on the UI thread, which must stay free to run commands.
-                        let shown = handle.notification().builder().title("Time for your task").body(&task.title).show();
+                        let title = match wakeup.kind {
+                            WakeupKind::Task => "Time for your task",
+                            WakeupKind::Schedule => "Coming up",
+                            WakeupKind::Exam => "Exam reminder",
+                        };
+                        let shown = handle.notification().builder().title(title).body(&wakeup.title).show();
                         let mut notice = None;
                         let state = handle.state::<State>();
                         let mut core = state.core.lock().await;
                         match shown {
-                            Ok(()) => if let Err(e) = core.mark_reminded(&task.id, now) { storage_failed = true; notice = Some(format!("Could not save reminder state: {e}")); },
-                            Err(e) => { eprintln!("Notification unavailable: {e}"); if core.mark_reminder_failed(&task.id, now).is_err() { storage_failed = true; } notice = Some("A reminder could not be delivered. Check OS notification permissions, then reschedule the task to retry.".to_string()); }
+                            Ok(()) => {
+                                let saved = match wakeup.kind {
+                                    WakeupKind::Task => core.mark_reminded(&wakeup.entity_id, now),
+                                    _ => core.mark_wakeup_delivered(&wakeup, now),
+                                };
+                                if let Err(e) = saved { storage_failed = true; notice = Some(format!("Could not save reminder state: {e}")); }
+                            }
+                            Err(e) => {
+                                eprintln!("Notification unavailable: {e}");
+                                let saved = match wakeup.kind {
+                                    WakeupKind::Task => core.mark_reminder_failed(&wakeup.entity_id, now),
+                                    _ => core.mark_wakeup_delivered(&wakeup, now),
+                                };
+                                if saved.is_err() { storage_failed = true; }
+                                notice = Some("A reminder could not be delivered. Check OS notification permissions, then reschedule the task to retry.".to_string());
+                            }
                         }
                         drop(core);
-                        if let Some(message) = notice { let _ = handle.emit("daybridge:error", message); }
+                        if let Some(message) = notice { let _ = handle.emit("dayboard:error", message); }
                     }
                     let remaining = {
                         let state = handle.state::<State>();
@@ -409,12 +435,12 @@ fn main() {
                         let _ = core.execute(Command::Rollover {dry_run:false}, Actor::Ui, Utc::now());
                         core.today_count(Utc::now()).unwrap_or(0)
                     };
-                    update_tray(&handle, remaining); let _ = handle.emit("daybridge:changed", ());
+                    update_tray(&handle, remaining); let _ = handle.emit("dayboard:changed", ());
                     if storage_failed { changed.notified().await; }
                 }
             });
             Ok(())
         })
         .on_window_event(|window, event| { if let tauri::WindowEvent::CloseRequested { api, .. } = event { api.prevent_close(); let _ = window.hide(); } })
-        .run(tauri::generate_context!()).expect("Daybridge failed to start");
+        .run(tauri::generate_context!()).expect("Dayboard failed to start");
 }

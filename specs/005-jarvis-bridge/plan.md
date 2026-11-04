@@ -15,7 +15,7 @@ Local-only and optional; typed command contracts; audit events for every bridge 
 
 ## Design
 
-The bridge crate owns a `Bridge` with a `std::sync::Mutex<Core>` connection to the same SQLite file and a `Notifier` callback. `handle_rpc` maps JSON-RPC methods to typed core commands and compact summaries; no business logic is duplicated. HTTP is implemented directly on `std::net::TcpListener` (no new HTTP dependency): `Content-Length` requests, `Connection: close` responses and an SSE stream for events. Authentication compares `Authorization: Bearer <token>` in constant time; the server refuses an empty token and binds only to loopback. The Tauri app starts the bridge at setup when enabled, passing a notifier that emits `daybridge:changed` and wakes the reminder loop. The standalone binary serves newline-delimited MCP on stdio, or HTTP with `--port`/`--token`.
+The bridge crate owns a `Bridge` with a `std::sync::Mutex<Core>` connection to the same SQLite file and a `Notifier` callback. `handle_rpc` maps JSON-RPC methods to typed core commands and compact summaries; no business logic is duplicated. HTTP is implemented directly on `std::net::TcpListener` (no new HTTP dependency): `Content-Length` requests, `Connection: close` responses and an SSE stream for events. Authentication compares `Authorization: Bearer <token>` in constant time; the server refuses an empty token and binds only to loopback. The Tauri app starts the bridge at setup when enabled, passing a notifier that emits `dayboard:changed` and wakes the reminder loop. The standalone binary serves newline-delimited MCP on stdio, or HTTP with `--port`/`--token`.
 
 ## Validation
 

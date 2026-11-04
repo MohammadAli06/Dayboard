@@ -560,9 +560,9 @@ fn projects_goals_templates_and_filters_round_trip() {
     let project = match core
         .execute(
             Command::CreateProject {
-                name: "Daybridge".into(),
+                name: "Dayboard".into(),
                 kind: ProjectKind::Coding,
-                repo_path: Some("C:/src/daybridge".into()),
+                repo_path: Some("C:/src/dayboard".into()),
                 branch: Some("main".into()),
             },
             Actor::User,
@@ -1379,7 +1379,7 @@ fn export_import_round_trip_skips_existing_ids() {
     create(&mut core, "Two");
     core.execute(
         Command::CreateProject {
-            name: "Daybridge".into(),
+            name: "Dayboard".into(),
             kind: ProjectKind::Coding,
             repo_path: None,
             branch: None,
@@ -1513,4 +1513,764 @@ fn undo_reverts_the_latest_task_change_and_guards_tampering() {
     .unwrap();
     drop(conn);
     assert!(core.undo_last(Actor::Jarvis, now()).is_err());
+}
+
+fn d(value: &str) -> chrono::NaiveDate {
+    chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d").unwrap()
+}
+fn at(value: &str) -> DateTime<Utc> {
+    value.parse().unwrap()
+}
+fn set_settings(core: &mut Core, change: impl FnOnce(&mut Settings)) {
+    let mut settings = core.settings().unwrap();
+    change(&mut settings);
+    core.execute(Command::SaveSettings(settings), Actor::User, now())
+        .unwrap();
+}
+fn add_item(
+    core: &mut Core,
+    title: &str,
+    weekdays: u32,
+    start: &str,
+    end: &str,
+    remind: Option<u32>,
+) -> ScheduleItem {
+    match core
+        .execute(
+            Command::CreateScheduleItem {
+                title: title.into(),
+                kind: ScheduleKind::Class,
+                weekdays,
+                start_time: start.into(),
+                end_time: end.into(),
+                term_id: None,
+                location: None,
+                notes: None,
+                subject_id: None,
+                remind_before_min: remind,
+            },
+            Actor::User,
+            now(),
+        )
+        .unwrap()
+    {
+        Response::ScheduleItem(item) => item,
+        _ => panic!("wrong response"),
+    }
+}
+fn occurrences(core: &mut Core, from: &str, to: &str) -> Vec<Occurrence> {
+    match core
+        .execute(
+            Command::ListOccurrences {
+                from: d(from),
+                to: d(to),
+            },
+            Actor::User,
+            now(),
+        )
+        .unwrap()
+    {
+        Response::Occurrences(items) => items,
+        _ => panic!("wrong response"),
+    }
+}
+fn snapshot(core: &mut Core) -> Snapshot {
+    match core
+        .execute(Command::Snapshot { search: None }, Actor::Ui, now())
+        .unwrap()
+    {
+        Response::Snapshot(snapshot) => *snapshot,
+        _ => panic!("wrong response"),
+    }
+}
+fn add_exam(
+    core: &mut Core,
+    kind: AcademicKind,
+    title: &str,
+    start: &str,
+    end: &str,
+) -> AcademicEvent {
+    match core
+        .execute(
+            Command::CreateAcademicEvent {
+                term_id: None,
+                kind,
+                title: title.into(),
+                subject_id: None,
+                start_at: at(start),
+                end_at: at(end),
+                all_day: false,
+                prep_days: 5,
+                suppress_classes: None,
+                notes: None,
+            },
+            Actor::User,
+            now(),
+        )
+        .unwrap()
+    {
+        Response::AcademicEvent(event) => event,
+        _ => panic!("wrong response"),
+    }
+}
+fn conflicts(core: &mut Core, from: &str, to: &str) -> Vec<Conflict> {
+    match core
+        .execute(
+            Command::ListConflicts {
+                from: d(from),
+                to: d(to),
+            },
+            Actor::User,
+            now(),
+        )
+        .unwrap()
+    {
+        Response::Conflicts(items) => items,
+        _ => panic!("wrong response"),
+    }
+}
+fn test_task(tags: &[&str], est: u32, actual: u32, status: Status) -> Task {
+    Task {
+        id: ulid::Ulid::new().to_string(),
+        title: "sample".into(),
+        notes: String::new(),
+        status,
+        priority: 3,
+        energy: Energy::Low,
+        est_min: est,
+        actual_min: actual,
+        due_at: None,
+        planned_day: None,
+        scheduled_start: None,
+        scheduled_end: None,
+        parent_id: None,
+        project_id: None,
+        goal_id: None,
+        dsa_problem_id: None,
+        recurrence_rule: None,
+        tags: tags.iter().map(|tag| tag.to_string()).collect(),
+        carried_count: 0,
+        created_at: now(),
+        completed_at: Some(now()),
+        deleted_at: None,
+        reminded_at: None,
+    }
+}
+
+#[test]
+fn schedule_weekday_bitmask_and_range_edges() {
+    let mut core = Core::memory().unwrap();
+    add_item(&mut core, "Algorithms", 1 | 4 | 16, "09:00", "10:00", None);
+    let week = occurrences(&mut core, "2026-11-02", "2026-11-08");
+    assert_eq!(week.len(), 3);
+    assert_eq!(
+        week.iter()
+            .map(|item| item.date.to_string())
+            .collect::<Vec<_>>(),
+        vec!["2026-11-02", "2026-11-04", "2026-11-06"]
+    );
+    assert!(week
+        .iter()
+        .all(|item| item.start_utc.to_rfc3339().ends_with("09:00:00+00:00")));
+    assert!(occurrences(&mut core, "2026-11-08", "2026-11-08").is_empty());
+    assert_eq!(occurrences(&mut core, "2026-10-26", "2026-11-02").len(), 4);
+    assert!(occurrences(&mut core, "2025-01-01", "2025-01-05").is_empty());
+    assert!(core
+        .execute(
+            Command::ListOccurrences {
+                from: d("2026-11-03"),
+                to: d("2026-11-02"),
+            },
+            Actor::User,
+            now(),
+        )
+        .is_err());
+}
+
+#[test]
+fn schedule_skip_move_and_clear_exceptions() {
+    let mut core = Core::memory().unwrap();
+    let item = add_item(&mut core, "Lab", 2, "10:00", "11:00", None);
+    core.execute(
+        Command::SkipOccurrence {
+            item_id: item.id.clone(),
+            date: d("2026-11-03"),
+        },
+        Actor::User,
+        now(),
+    )
+    .unwrap();
+    assert!(occurrences(&mut core, "2026-11-03", "2026-11-03").is_empty());
+    core.execute(
+        Command::MoveOccurrence {
+            item_id: item.id.clone(),
+            date: d("2026-11-10"),
+            new_start: "14:00".into(),
+            new_end: None,
+        },
+        Actor::User,
+        now(),
+    )
+    .unwrap();
+    let moved = occurrences(&mut core, "2026-11-10", "2026-11-10");
+    assert_eq!(moved.len(), 1);
+    assert!(moved[0].is_moved);
+    assert_eq!(moved[0].start_utc.to_rfc3339(), "2026-11-10T14:00:00+00:00");
+    assert_eq!(moved[0].end_utc.to_rfc3339(), "2026-11-10T15:00:00+00:00");
+    core.execute(
+        Command::ClearException {
+            item_id: item.id,
+            date: d("2026-11-10"),
+        },
+        Actor::User,
+        now(),
+    )
+    .unwrap();
+    let restored = occurrences(&mut core, "2026-11-10", "2026-11-10");
+    assert_eq!(
+        restored[0].start_utc.to_rfc3339(),
+        "2026-11-10T10:00:00+00:00"
+    );
+    assert!(!restored[0].is_moved);
+}
+
+#[test]
+fn schedule_dst_spring_forward_and_fall_back() {
+    let mut core = Core::memory().unwrap();
+    set_settings(&mut core, |settings| {
+        settings.timezone = "America/New_York".into()
+    });
+    let term = match core
+        .execute(
+            Command::CreateTerm {
+                name: "2027".into(),
+                start_date: d("2027-01-01"),
+                end_date: d("2027-12-31"),
+            },
+            Actor::User,
+            now(),
+        )
+        .unwrap()
+    {
+        Response::Term(term) => term,
+        _ => panic!(),
+    };
+    core.execute(Command::SetActiveTerm { id: term.id }, Actor::User, now())
+        .unwrap();
+    add_item(&mut core, "Early class", 64, "01:30", "02:30", None);
+    let spring = occurrences(&mut core, "2027-03-14", "2027-03-14");
+    assert_eq!(spring.len(), 1);
+    assert_eq!(
+        spring[0].start_utc.to_rfc3339(),
+        "2027-03-14T06:30:00+00:00"
+    );
+    assert_eq!(spring[0].end_utc.to_rfc3339(), "2027-03-14T07:00:00+00:00");
+    assert_eq!((spring[0].end_utc - spring[0].start_utc).num_minutes(), 30);
+    let fall = occurrences(&mut core, "2027-11-07", "2027-11-07");
+    assert_eq!(fall.len(), 1);
+    assert_eq!(fall[0].start_utc.to_rfc3339(), "2027-11-07T05:30:00+00:00");
+}
+
+#[test]
+fn schedule_timezone_change_keeps_wall_clock() {
+    let mut core = Core::memory().unwrap();
+    add_item(&mut core, "Standup", 1, "09:00", "10:00", None);
+    assert_eq!(
+        occurrences(&mut core, "2026-11-02", "2026-11-02")[0]
+            .start_utc
+            .to_rfc3339(),
+        "2026-11-02T09:00:00+00:00"
+    );
+    set_settings(&mut core, |settings| {
+        settings.timezone = "Asia/Kolkata".into()
+    });
+    assert_eq!(
+        occurrences(&mut core, "2026-11-02", "2026-11-02")[0]
+            .start_utc
+            .to_rfc3339(),
+        "2026-11-02T03:30:00+00:00"
+    );
+}
+
+#[test]
+fn schedule_capacity_math_and_overlap_warning() {
+    let mut core = Core::memory().unwrap();
+    add_item(&mut core, "Lecture", 1, "10:00", "11:00", None);
+    let task = create(&mut core, "Deep work 60m today");
+    let state = snapshot(&mut core);
+    assert_eq!(state.capacity.cap_minutes, 480);
+    assert_eq!(state.capacity.schedule_minutes, 60);
+    assert_eq!(state.capacity.minutes, 60);
+    assert_eq!(state.capacity.available_minutes, 420);
+    assert!(!state.capacity.over_minutes);
+    let response = core
+        .execute(
+            Command::RescheduleTask {
+                id: task.id,
+                local_start: Some("2026-11-02T10:30".into()),
+                day: None,
+                dry_run: false,
+            },
+            Actor::User,
+            now(),
+        )
+        .unwrap();
+    match response {
+        Response::TaskScheduled(response) => {
+            assert_eq!(response.overlap.len(), 1);
+            assert_eq!(response.overlap[0].title, "Lecture");
+        }
+        _ => panic!("expected an overlap warning"),
+    }
+}
+
+#[test]
+fn schedule_undo_restores_item() {
+    let mut core = Core::memory().unwrap();
+    let item = add_item(&mut core, "Seminar", 1, "11:00", "12:00", None);
+    let outcome = core.undo_last_any(Actor::Jarvis, now()).unwrap().unwrap();
+    assert_eq!(outcome.entity, "schedule_item");
+    let listed = match core
+        .execute(Command::ListScheduleItems, Actor::User, now())
+        .unwrap()
+    {
+        Response::ScheduleItems(items) => items,
+        _ => panic!(),
+    };
+    assert!(listed.iter().all(|candidate| candidate.id != item.id));
+    assert!(occurrences(&mut core, "2026-11-02", "2026-11-02").is_empty());
+}
+
+#[test]
+fn term_switch_copy_and_archive() {
+    let mut core = Core::memory().unwrap();
+    let source = core.active_term().unwrap().unwrap();
+    add_item(&mut core, "Physics", 1, "09:00", "10:00", None);
+    let target = match core
+        .execute(
+            Command::CreateTerm {
+                name: "Next".into(),
+                start_date: d("2026-11-01"),
+                end_date: d("2026-12-31"),
+            },
+            Actor::User,
+            now(),
+        )
+        .unwrap()
+    {
+        Response::Term(term) => term,
+        _ => panic!(),
+    };
+    let copied = match core
+        .execute(
+            Command::CopyScheduleToTerm {
+                from_term_id: source.id.clone(),
+                to_term_id: target.id.clone(),
+            },
+            Actor::User,
+            now(),
+        )
+        .unwrap()
+    {
+        Response::ScheduleItems(items) => items,
+        _ => panic!(),
+    };
+    assert_eq!(copied.len(), 1);
+    core.execute(
+        Command::SetActiveTerm {
+            id: target.id.clone(),
+        },
+        Actor::User,
+        now(),
+    )
+    .unwrap();
+    assert_eq!(occurrences(&mut core, "2026-11-02", "2026-11-02").len(), 1);
+    core.execute(
+        Command::ArchiveTerm {
+            id: target.id.clone(),
+        },
+        Actor::User,
+        now(),
+    )
+    .unwrap();
+    assert_eq!(occurrences(&mut core, "2026-11-02", "2026-11-02").len(), 1);
+    assert!(core
+        .execute(
+            Command::UpdateTerm {
+                id: target.id,
+                name: "Changed".into(),
+                start_date: d("2026-12-01"),
+                end_date: d("2027-01-01"),
+            },
+            Actor::User,
+            now()
+        )
+        .is_err());
+}
+
+#[test]
+fn class_suppression_policies() {
+    let mut core = Core::memory().unwrap();
+    add_item(&mut core, "Lecture", 1, "09:00", "10:00", None);
+    let overlap = add_exam(
+        &mut core,
+        AcademicKind::Other,
+        "Workshop",
+        "2026-11-02T09:30:00Z",
+        "2026-11-02T10:00:00Z",
+    );
+    assert!(occurrences(&mut core, "2026-11-02", "2026-11-02").is_empty());
+    core.execute(
+        Command::DeleteAcademicEvent {
+            id: overlap.id.clone(),
+        },
+        Actor::User,
+        now(),
+    )
+    .unwrap();
+    assert_eq!(occurrences(&mut core, "2026-11-02", "2026-11-02").len(), 1);
+    add_exam(
+        &mut core,
+        AcademicKind::Other,
+        "Late workshop",
+        "2026-11-02T11:00:00Z",
+        "2026-11-02T12:00:00Z",
+    );
+    assert_eq!(occurrences(&mut core, "2026-11-02", "2026-11-02").len(), 1);
+    let holiday = add_exam(
+        &mut core,
+        AcademicKind::Holiday,
+        "Holiday",
+        "2026-11-02T00:00:00Z",
+        "2026-11-02T23:59:00Z",
+    );
+    assert_eq!(holiday.suppress_classes, SuppressClasses::WholeDay);
+    assert!(occurrences(&mut core, "2026-11-02", "2026-11-02").is_empty());
+}
+
+#[test]
+fn conflict_rules_and_dismissal() {
+    let mut core = Core::memory().unwrap();
+    add_item(&mut core, "Lecture", 1, "09:00", "10:00", None);
+    let task = create(&mut core, "Read 30m today");
+    add_exam(
+        &mut core,
+        AcademicKind::Holiday,
+        "Holiday",
+        "2026-11-02T00:00:00Z",
+        "2026-11-02T23:59:00Z",
+    );
+    let found = conflicts(&mut core, "2026-11-02", "2026-11-02");
+    assert!(found
+        .iter()
+        .any(|conflict| conflict.rule_id == "task_on_blocked_day" && conflict.task_id == task.id));
+    core.execute(
+        Command::DismissConflict {
+            task_id: task.id.clone(),
+            date: d("2026-11-02"),
+            rule_id: "task_on_blocked_day".into(),
+        },
+        Actor::User,
+        now(),
+    )
+    .unwrap();
+    assert!(conflicts(&mut core, "2026-11-02", "2026-11-02")
+        .iter()
+        .all(|conflict| conflict.rule_id != "task_on_blocked_day"));
+
+    let mut tight = Core::memory().unwrap();
+    set_settings(&mut tight, |settings| {
+        settings.work_start = 9;
+        settings.work_end = 10;
+    });
+    add_item(&mut tight, "Lecture", 1, "09:00", "10:00", None);
+    create(&mut tight, "Read 30m today");
+    assert!(conflicts(&mut tight, "2026-11-02", "2026-11-02")
+        .iter()
+        .any(|conflict| conflict.rule_id == "task_over_capacity_day"));
+
+    let mut due = Core::memory().unwrap();
+    create(&mut due, "Read today");
+    add_exam(
+        &mut due,
+        AcademicKind::Midterm,
+        "Midterm",
+        "2026-11-02T10:00:00Z",
+        "2026-11-02T12:00:00Z",
+    );
+    let rules: Vec<String> = conflicts(&mut due, "2026-11-02", "2026-11-02")
+        .into_iter()
+        .map(|conflict| conflict.rule_id)
+        .collect();
+    assert!(rules.iter().any(|rule| rule == "due_on_exam_day"));
+    assert!(!rules.iter().any(|rule| rule == "too_many_exams_in_n_days"));
+
+    let mut window = Core::memory().unwrap();
+    create(&mut window, "Read 2026-11-04");
+    add_exam(
+        &mut window,
+        AcademicKind::Final,
+        "Final",
+        "2026-11-06T09:00:00Z",
+        "2026-11-06T12:00:00Z",
+    );
+    assert!(conflicts(&mut window, "2026-11-02", "2026-11-06")
+        .iter()
+        .any(|conflict| conflict.rule_id == "due_in_exam_window_without_start_by"));
+
+    let mut prep = Core::memory().unwrap();
+    set_settings(&mut prep, |settings| settings.non_study_cap_in_prep_pct = 0);
+    create(&mut prep, "P4 errand 60m p4 today");
+    add_exam(
+        &mut prep,
+        AcademicKind::Final,
+        "Final",
+        "2026-11-06T09:00:00Z",
+        "2026-11-06T12:00:00Z",
+    );
+    assert!(conflicts(&mut prep, "2026-11-02", "2026-11-02")
+        .iter()
+        .any(|conflict| conflict.rule_id == "low_priority_in_prep_window"));
+
+    let mut exams = Core::memory().unwrap();
+    create(&mut exams, "Read 30m today");
+    add_exam(
+        &mut exams,
+        AcademicKind::Midterm,
+        "Midterm",
+        "2026-11-02T09:00:00Z",
+        "2026-11-02T10:00:00Z",
+    );
+    add_exam(
+        &mut exams,
+        AcademicKind::Final,
+        "Final",
+        "2026-11-02T11:00:00Z",
+        "2026-11-02T12:00:00Z",
+    );
+    assert!(conflicts(&mut exams, "2026-11-02", "2026-11-02")
+        .iter()
+        .any(|conflict| conflict.rule_id == "too_many_exams_in_n_days"));
+}
+
+#[test]
+fn start_by_math_and_estimate_calibration() {
+    let tasks = vec![
+        test_task(&["!study"], 10, 20, Status::Done),
+        test_task(&["!study"], 10, 20, Status::Done),
+        test_task(&["!study"], 10, 20, Status::Done),
+        test_task(&["!study"], 10, 20, Status::Done),
+        test_task(&["!study"], 10, 20, Status::Done),
+    ];
+    assert_eq!(
+        dayboard_core::load::estimate_calibration(&tasks, "!study", 5),
+        Some(2.0)
+    );
+    assert_eq!(
+        dayboard_core::load::estimate_calibration(&tasks, "!study", 6),
+        None
+    );
+    let low = vec![test_task(&["!study"], 100, 1, Status::Done)];
+    assert_eq!(
+        dayboard_core::load::estimate_calibration(&low, "!study", 1),
+        Some(0.7)
+    );
+
+    let mut core = Core::memory().unwrap();
+    let task = create(&mut core, "Read 2026-11-06 2h");
+    let settings = core.settings().unwrap();
+    let items = core.schedule_items().unwrap();
+    let exceptions = core.schedule_exceptions().unwrap();
+    let terms = core.terms().unwrap();
+    let events = core.academic_events().unwrap();
+    let all = core.tasks().unwrap();
+    let tz: chrono_tz::Tz = "UTC".parse().unwrap();
+    let input = dayboard_core::load::LoadInput {
+        settings: &settings,
+        items: &items,
+        exceptions: &exceptions,
+        terms: &terms,
+        events: &events,
+        tasks: &all,
+        tz,
+    };
+    assert_eq!(
+        dayboard_core::load::start_by_date(&input, &task),
+        Some(d("2026-11-05"))
+    );
+}
+
+#[test]
+fn prep_plan_skips_blocked_days() {
+    let mut core = Core::memory().unwrap();
+    let subject = match core
+        .execute(
+            Command::CreateSubject {
+                name: "Physics".into(),
+            },
+            Actor::User,
+            now(),
+        )
+        .unwrap()
+    {
+        Response::Subject(subject) => subject,
+        _ => panic!(),
+    };
+    for title in ["Kinematics", "Optics", "Waves"] {
+        core.execute(
+            Command::AddSyllabusItem {
+                subject_id: subject.id.clone(),
+                title: title.into(),
+            },
+            Actor::User,
+            now(),
+        )
+        .unwrap();
+    }
+    let exam = match core
+        .execute(
+            Command::CreateAcademicEvent {
+                term_id: None,
+                kind: AcademicKind::Final,
+                title: "Final".into(),
+                subject_id: Some(subject.id.clone()),
+                start_at: at("2026-11-06T09:00:00Z"),
+                end_at: at("2026-11-06T12:00:00Z"),
+                all_day: false,
+                prep_days: 5,
+                suppress_classes: None,
+                notes: None,
+            },
+            Actor::User,
+            now(),
+        )
+        .unwrap()
+    {
+        Response::AcademicEvent(event) => event,
+        _ => panic!(),
+    };
+    add_exam(
+        &mut core,
+        AcademicKind::Holiday,
+        "Holiday",
+        "2026-11-04T00:00:00Z",
+        "2026-11-04T23:59:00Z",
+    );
+    let settings = core.settings().unwrap();
+    let items = core.schedule_items().unwrap();
+    let exceptions = core.schedule_exceptions().unwrap();
+    let terms = core.terms().unwrap();
+    let events = core.academic_events().unwrap();
+    let tasks = core.tasks().unwrap();
+    let syllabus = core.syllabus_items().unwrap();
+    let tz: chrono_tz::Tz = "UTC".parse().unwrap();
+    let input = dayboard_core::load::LoadInput {
+        settings: &settings,
+        items: &items,
+        exceptions: &exceptions,
+        terms: &terms,
+        events: &events,
+        tasks: &tasks,
+        tz,
+    };
+    let plan = dayboard_core::load::prep_plan(&input, &exam, &syllabus);
+    assert!(!plan.tasks.is_empty());
+    assert!(plan
+        .tasks
+        .iter()
+        .all(|task| task.tags.iter().any(|tag| tag == "!study")));
+    assert!(plan.tasks.iter().all(|task| task.day != d("2026-11-04")));
+    assert!(plan
+        .tasks
+        .iter()
+        .any(|task| task.day == d("2026-11-06") - chrono::Duration::days(1)));
+    let applied = match core
+        .execute(
+            Command::ApplyPrepPlan {
+                event_id: exam.id,
+                dry_run: false,
+            },
+            Actor::User,
+            now(),
+        )
+        .unwrap()
+    {
+        Response::Tasks(tasks) => tasks,
+        _ => panic!(),
+    };
+    assert!(!applied.is_empty());
+    assert!(core
+        .tasks()
+        .unwrap()
+        .iter()
+        .any(|task| task.tags.iter().any(|tag| tag == "!study")));
+}
+
+#[test]
+fn day_status_performance_over_90_days() {
+    let settings = Settings::default();
+    let items: Vec<ScheduleItem> = Vec::new();
+    let exceptions: Vec<ScheduleException> = Vec::new();
+    let terms: Vec<Term> = Vec::new();
+    let events: Vec<AcademicEvent> = Vec::new();
+    let tasks: Vec<Task> = Vec::new();
+    let tz: chrono_tz::Tz = "UTC".parse().unwrap();
+    let input = dayboard_core::load::LoadInput {
+        settings: &settings,
+        items: &items,
+        exceptions: &exceptions,
+        terms: &terms,
+        events: &events,
+        tasks: &tasks,
+        tz,
+    };
+    let started = std::time::Instant::now();
+    let load = dayboard_core::load::week_load(&input, d("2026-01-01"), d("2026-03-31"));
+    assert_eq!(load.len(), 90);
+    assert!(
+        started.elapsed().as_millis() < 20,
+        "90-day day_status took {:?}",
+        started.elapsed()
+    );
+}
+
+#[test]
+fn migration_from_v4_keeps_data_and_backfills_term() {
+    let mut memory = Core::memory().unwrap();
+    let task = create(&mut memory, "Legacy task");
+    let raw = serde_json::to_string(&task).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("legacy.db");
+    {
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        conn.execute_batch(include_str!("../src/schema.sql"))
+            .unwrap();
+        conn.execute_batch(include_str!("../src/schema_v2.sql"))
+            .unwrap();
+        conn.execute_batch(include_str!("../src/schema_v3.sql"))
+            .unwrap();
+        conn.execute_batch(include_str!("../src/schema_v4.sql"))
+            .unwrap();
+        conn.pragma_update(None, "user_version", 4).unwrap();
+        conn.execute(
+            "INSERT INTO tasks(id,data,status,planned_day,due_at,created_at,deleted) VALUES(?1,?2,?3,?4,?5,?6,0)",
+            rusqlite::params![
+                task.id,
+                raw,
+                serde_json::to_string(&task.status).unwrap(),
+                task.planned_day.map(|day| day.to_string()),
+                task.due_at.map(|due| due.to_rfc3339()),
+                task.created_at.to_rfc3339()
+            ],
+        )
+        .unwrap();
+    }
+    let mut core = Core::open(&path).unwrap();
+    assert_eq!(core.tasks().unwrap().len(), 1);
+    let terms = core.terms().unwrap();
+    assert_eq!(terms.len(), 1);
+    assert_eq!(terms[0].name, "Current term");
+    let item = add_item(&mut core, "Backfilled", 1, "09:00", "10:00", None);
+    assert_eq!(item.term_id, terms[0].id);
+    assert_eq!(occurrences(&mut core, "2026-11-02", "2026-11-02").len(), 1);
 }

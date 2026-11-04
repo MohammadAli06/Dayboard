@@ -1,6 +1,6 @@
-# Releasing Daybridge
+# Releasing Dayboard
 
-Daybridge ships as a Tauri desktop app. This guide covers local builds, installer metadata, signing/notarization, the optional updater and current limitations.
+Dayboard ships as a Tauri desktop app. This guide covers local builds, installer metadata, signing/notarization, the optional updater and current limitations.
 
 ## Build
 
@@ -38,19 +38,19 @@ Keep keys and passwords in CI secrets, never in the repository.
 
 ## Autostart
 
-Enabling **Start Daybridge on login** in Preferences writes, in packaged builds only:
+Enabling **Start Dayboard on login** in Preferences writes, in packaged builds only:
 
-- Windows: `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\Daybridge`
-- macOS: `~/Library/LaunchAgents/dev.daybridge.desktop.plist`
-- Linux: `~/.config/autostart/daybridge.desktop`
+- Windows: `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\Dayboard`
+- macOS: `~/Library/LaunchAgents/dev.dayboard.desktop.plist`
+- Linux: `~/.config/autostart/dayboard.desktop`
 
-Development builds skip the OS entry by design, so `npm run desktop` never registers a dev binary. Disabling removes only the Daybridge entry.
+Development builds skip the OS entry by design, so `npm run desktop` never registers a dev binary. Disabling removes only the Dayboard entry.
 
 ## Auto-update (intentionally off by default)
 
-Daybridge does not contact a server. Enabling the Tauri updater requires an owner-provided signing key and update endpoint:
+Dayboard does not contact a server. Enabling the Tauri updater requires an owner-provided signing key and update endpoint:
 
-1. Generate keys: `npm run tauri signer generate -- -w ~/.tauri/daybridge.key`; keep the private key in CI.
+1. Generate keys: `npm run tauri signer generate -- -w ~/.tauri/dayboard.key`; keep the private key in CI.
 2. Add `tauri-plugin-updater` (Rust and JS), set `bundle.createUpdaterArtifacts: true`, and add `plugins.updater` with `endpoints` and `pubkey` in `tauri.conf.json`.
 3. Publish signed update artifacts (for example to GitHub Releases) and point the endpoint manifest at them.
 4. Check for updates from an explicit user action. Do not add startup polling or telemetry.

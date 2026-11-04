@@ -674,10 +674,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "dayboard"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "chrono-tz",
+ "dayboard-bridge",
+ "dayboard-core",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-global-shortcut",
+ "tauri-plugin-notification",
+ "tauri-plugin-single-instance",
+ "tokio",
+]
+
+[[package]]
 name = "dayboard-bridge"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "chrono-tz",
  "dayboard-core",
  "schemars 1.2.3",
  "serde",
@@ -700,24 +719,6 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "ulid",
-]
-
-[[package]]
-name = "daybridge"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "chrono-tz",
- "dayboard-bridge",
- "dayboard-core",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-global-shortcut",
- "tauri-plugin-notification",
- "tauri-plugin-single-instance",
- "tokio",
 ]
 
 [[package]]

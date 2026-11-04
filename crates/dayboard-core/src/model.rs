@@ -261,6 +261,203 @@ pub struct WeeklyStats {
     pub measured: usize,
     pub tag_stats: Vec<TagStat>,
 }
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ScheduleKind {
+    Class,
+    Work,
+    Routine,
+    Other,
+}
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ExceptionAction {
+    Skip,
+    Move,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ScheduleItem {
+    pub id: String,
+    pub title: String,
+    pub kind: ScheduleKind,
+    pub weekdays: u32,
+    pub start_time: String,
+    pub end_time: String,
+    pub location: Option<String>,
+    pub notes: Option<String>,
+    pub subject_id: Option<String>,
+    pub remind_before_min: Option<u32>,
+    pub active: bool,
+    pub term_id: String,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub deleted_at: Option<DateTime<Utc>>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct ScheduleException {
+    pub id: String,
+    pub item_id: String,
+    pub date: NaiveDate,
+    pub action: ExceptionAction,
+    pub new_start: Option<String>,
+    pub new_end: Option<String>,
+    pub note: Option<String>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct Occurrence {
+    pub item_id: String,
+    pub title: String,
+    pub kind: ScheduleKind,
+    pub date: NaiveDate,
+    pub start_utc: DateTime<Utc>,
+    pub end_utc: DateTime<Utc>,
+    pub location: Option<String>,
+    pub is_moved: bool,
+    pub remind_before_min: Option<u32>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct Term {
+    pub id: String,
+    pub name: String,
+    pub start_date: NaiveDate,
+    pub end_date: NaiveDate,
+    pub active: bool,
+    pub archived: bool,
+    pub created_at: DateTime<Utc>,
+}
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AcademicKind {
+    Midterm,
+    Practical,
+    Oral,
+    Final,
+    AssignmentDue,
+    Holiday,
+    Other,
+}
+impl AcademicKind {
+    pub fn is_exam(self) -> bool {
+        matches!(
+            self,
+            Self::Midterm | Self::Practical | Self::Oral | Self::Final
+        )
+    }
+}
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SuppressClasses {
+    None,
+    OverlapOnly,
+    WholeDay,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct AcademicEvent {
+    pub id: String,
+    pub term_id: String,
+    pub kind: AcademicKind,
+    pub title: String,
+    pub subject_id: Option<String>,
+    pub start_at: DateTime<Utc>,
+    pub end_at: DateTime<Utc>,
+    pub all_day: bool,
+    pub prep_days: u32,
+    pub suppress_classes: SuppressClasses,
+    pub notes: String,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct DismissedConflict {
+    pub task_id: String,
+    pub date: NaiveDate,
+    pub rule_id: String,
+    pub created_at: DateTime<Utc>,
+}
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DayStatusKind {
+    Free,
+    Normal,
+    Heavy,
+    Blocked,
+    PrepCritical,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+pub struct DayReason {
+    pub rule_id: String,
+    pub message: String,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct DayStatus {
+    pub date: NaiveDate,
+    pub status: DayStatusKind,
+    pub available_min: u32,
+    pub used_min: u32,
+    pub reasons: Vec<DayReason>,
+}
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SuggestionAction {
+    Move,
+    Defer,
+    Split,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ConflictSuggestion {
+    pub action: SuggestionAction,
+    pub target_date: Option<NaiveDate>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct Conflict {
+    pub task_id: String,
+    pub date: NaiveDate,
+    pub rule_id: String,
+    pub reason: String,
+    pub suggestion: ConflictSuggestion,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ProposedTask {
+    pub title: String,
+    pub day: NaiveDate,
+    pub est_min: u32,
+    pub tags: Vec<String>,
+    pub subject_id: Option<String>,
+    pub syllabus_item_id: Option<String>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct PrepPlan {
+    pub event_id: String,
+    pub event_title: String,
+    pub tasks: Vec<ProposedTask>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct WeekLoadEntry {
+    pub date: NaiveDate,
+    pub status: DayStatusKind,
+    pub available_min: u32,
+    pub used_min: u32,
+    pub schedule_min: u32,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct UndoOutcome {
+    pub entity: String,
+    pub action: String,
+    pub id: String,
+}
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum WakeupKind {
+    Task,
+    Schedule,
+    Exam,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct Wakeup {
+    pub kind: WakeupKind,
+    pub at: DateTime<Utc>,
+    pub title: String,
+    pub entity_id: String,
+    pub key: String,
+}
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ImportSummary {
     #[serde(default)]
@@ -289,6 +486,16 @@ pub struct ImportSummary {
     pub focus_sessions: usize,
     #[serde(default)]
     pub daily_reviews: usize,
+    #[serde(default)]
+    pub schedule_items: usize,
+    #[serde(default)]
+    pub schedule_exceptions: usize,
+    #[serde(default)]
+    pub terms: usize,
+    #[serde(default)]
+    pub academic_events: usize,
+    #[serde(default)]
+    pub dismissed_conflicts: usize,
     #[serde(default)]
     pub skipped: usize,
 }
@@ -323,9 +530,37 @@ pub struct ExportBundle {
     pub focus_sessions: Vec<FocusSession>,
     #[serde(default)]
     pub daily_reviews: Vec<DailyReview>,
+    #[serde(default)]
+    pub schedule_items: Vec<ScheduleItem>,
+    #[serde(default)]
+    pub schedule_exceptions: Vec<ScheduleException>,
+    #[serde(default)]
+    pub terms: Vec<Term>,
+    #[serde(default)]
+    pub academic_events: Vec<AcademicEvent>,
+    #[serde(default)]
+    pub dismissed_conflicts: Vec<DismissedConflict>,
 }
 fn default_bridge_port() -> u16 {
     8765
+}
+fn default_day_before_pct() -> u32 {
+    50
+}
+fn default_prep_window_days() -> u32 {
+    5
+}
+fn default_non_study_pct() -> u32 {
+    60
+}
+fn default_heavy_pct() -> u32 {
+    85
+}
+fn default_calibration_true() -> bool {
+    true
+}
+fn default_calibration_samples() -> u32 {
+    5
 }
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct Settings {
@@ -344,6 +579,20 @@ pub struct Settings {
     pub autostart: bool,
     #[serde(default)]
     pub onboarded: bool,
+    #[serde(default)]
+    pub exam_day_new_task_cap: u32,
+    #[serde(default = "default_day_before_pct")]
+    pub day_before_exam_capacity_pct: u32,
+    #[serde(default = "default_prep_window_days")]
+    pub prep_window_days: u32,
+    #[serde(default = "default_non_study_pct")]
+    pub non_study_cap_in_prep_pct: u32,
+    #[serde(default = "default_heavy_pct")]
+    pub heavy_day_threshold_pct: u32,
+    #[serde(default = "default_calibration_true")]
+    pub calibrate_estimates: bool,
+    #[serde(default = "default_calibration_samples")]
+    pub calibration_min_samples: u32,
 }
 impl Default for Settings {
     fn default() -> Self {
@@ -358,6 +607,13 @@ impl Default for Settings {
             bridge_token: String::new(),
             autostart: false,
             onboarded: false,
+            exam_day_new_task_cap: 0,
+            day_before_exam_capacity_pct: default_day_before_pct(),
+            prep_window_days: default_prep_window_days(),
+            non_study_cap_in_prep_pct: default_non_study_pct(),
+            heavy_day_threshold_pct: default_heavy_pct(),
+            calibrate_estimates: default_calibration_true(),
+            calibration_min_samples: default_calibration_samples(),
         }
     }
 }
@@ -572,6 +828,139 @@ pub enum Command {
         day: Option<NaiveDate>,
         note: String,
     },
+    CreateScheduleItem {
+        title: String,
+        kind: ScheduleKind,
+        weekdays: u32,
+        start_time: String,
+        end_time: String,
+        term_id: Option<String>,
+        location: Option<String>,
+        notes: Option<String>,
+        subject_id: Option<String>,
+        remind_before_min: Option<u32>,
+    },
+    UpdateScheduleItem {
+        id: String,
+        title: String,
+        kind: ScheduleKind,
+        weekdays: u32,
+        start_time: String,
+        end_time: String,
+        location: Option<String>,
+        notes: Option<String>,
+        subject_id: Option<String>,
+        remind_before_min: Option<u32>,
+        active: bool,
+    },
+    DeleteScheduleItem {
+        id: String,
+    },
+    ListScheduleItems,
+    ListOccurrences {
+        from: NaiveDate,
+        to: NaiveDate,
+    },
+    SkipOccurrence {
+        item_id: String,
+        date: NaiveDate,
+    },
+    MoveOccurrence {
+        item_id: String,
+        date: NaiveDate,
+        new_start: String,
+        new_end: Option<String>,
+    },
+    ClearException {
+        item_id: String,
+        date: NaiveDate,
+    },
+    CreateTerm {
+        name: String,
+        start_date: NaiveDate,
+        end_date: NaiveDate,
+    },
+    UpdateTerm {
+        id: String,
+        name: String,
+        start_date: NaiveDate,
+        end_date: NaiveDate,
+    },
+    ArchiveTerm {
+        id: String,
+    },
+    SetActiveTerm {
+        id: String,
+    },
+    CopyScheduleToTerm {
+        from_term_id: String,
+        to_term_id: String,
+    },
+    CreateAcademicEvent {
+        term_id: Option<String>,
+        kind: AcademicKind,
+        title: String,
+        subject_id: Option<String>,
+        start_at: DateTime<Utc>,
+        end_at: DateTime<Utc>,
+        all_day: bool,
+        prep_days: u32,
+        suppress_classes: Option<SuppressClasses>,
+        notes: Option<String>,
+    },
+    UpdateAcademicEvent {
+        id: String,
+        kind: AcademicKind,
+        title: String,
+        subject_id: Option<String>,
+        start_at: DateTime<Utc>,
+        end_at: DateTime<Utc>,
+        all_day: bool,
+        prep_days: u32,
+        suppress_classes: SuppressClasses,
+        notes: Option<String>,
+    },
+    DeleteAcademicEvent {
+        id: String,
+    },
+    ListAcademicEvents {
+        from: NaiveDate,
+        to: NaiveDate,
+    },
+    GetDayStatus {
+        date: NaiveDate,
+    },
+    ListConflicts {
+        from: NaiveDate,
+        to: NaiveDate,
+    },
+    ApplySuggestion {
+        task_id: String,
+        date: NaiveDate,
+        action: SuggestionAction,
+        dry_run: bool,
+    },
+    DismissConflict {
+        task_id: String,
+        date: NaiveDate,
+        rule_id: String,
+    },
+    PreviewPrepPlan {
+        event_id: String,
+    },
+    ApplyPrepPlan {
+        event_id: String,
+        dry_run: bool,
+    },
+    WeekLoad {
+        from: NaiveDate,
+        to: NaiveDate,
+    },
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct TaskScheduled {
+    pub task: Task,
+    pub overlap: Vec<Occurrence>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct Capacity {
@@ -579,6 +968,9 @@ pub struct Capacity {
     pub minutes: u32,
     pub over_count: bool,
     pub over_minutes: bool,
+    pub available_minutes: u32,
+    pub schedule_minutes: u32,
+    pub cap_minutes: u32,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct Snapshot {
@@ -603,6 +995,15 @@ pub struct Snapshot {
     pub habit_streaks: Vec<HabitStreak>,
     pub daily_reviews: Vec<DailyReview>,
     pub weekly_stats: WeeklyStats,
+    pub schedule_items: Vec<ScheduleItem>,
+    pub today_occurrences: Vec<Occurrence>,
+    pub week_occurrences: Vec<Occurrence>,
+    pub terms: Vec<Term>,
+    pub active_term: Option<Term>,
+    pub academic_events: Vec<AcademicEvent>,
+    pub day_status: DayStatus,
+    pub upcoming_exams: Vec<AcademicEvent>,
+    pub conflicts: Vec<Conflict>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "type", content = "data", rename_all = "snake_case")]
@@ -611,6 +1012,7 @@ pub enum Response {
     Snapshot(Box<Snapshot>),
     Parsed(ParsedTask),
     Task(Task),
+    TaskScheduled(TaskScheduled),
     Tasks(Vec<Task>),
     Settings(Settings),
     Project(Project),
@@ -625,4 +1027,16 @@ pub enum Response {
     Habit(Habit),
     HabitLog(HabitLog),
     Review(DailyReview),
+    ScheduleItem(ScheduleItem),
+    ScheduleItems(Vec<ScheduleItem>),
+    Occurrences(Vec<Occurrence>),
+    Term(Term),
+    Terms(Vec<Term>),
+    AcademicEvent(AcademicEvent),
+    AcademicEvents(Vec<AcademicEvent>),
+    DayStatus(DayStatus),
+    Conflicts(Vec<Conflict>),
+    PrepPlan(PrepPlan),
+    WeekLoad(Vec<WeekLoadEntry>),
+    Undone(UndoOutcome),
 }

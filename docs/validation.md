@@ -16,11 +16,11 @@ Validation performed on Windows on 2026-11-02. This records observed results, no
 
 ## Native validation
 
-A Windows debug build with embedded frontend assets compiled and launched. Its process exposed a `Daybridge` window, reported responsive, and created the SQLite database in an isolated temporary data directory. That test process was stopped afterward.
+A Windows debug build with embedded frontend assets compiled and launched. Its process exposed a `Dayboard` window, reported responsive, and created the SQLite database in an isolated temporary data directory. That test process was stopped afterward.
 
 Interactive native verification could not run: both computer-use interfaces reported `Computer Use native pipe is unavailable ... The system cannot find the file specified. (os error 2)`. Therefore actual visual appearance, native quick-add, drag/drop, tray badge and OS notification delivery remain manual acceptance items. DOM tests cover frontend behavior but do not substitute for these checks.
 
-A Windows x64 NSIS release installer was built successfully with `npm run tauri build -- --bundles nsis` at `target/release/bundle/nsis/Daybridge_0.1.0_x64-setup.exe` (about 2.08 MiB). This verifies packaging and the installer-size target for this build; the installer has not been installed on a clean VM. It is unsigned.
+A Windows x64 NSIS release installer was built successfully with `npm run tauri build -- --bundles nsis` at `target/release/bundle/nsis/Dayboard_0.1.0_x64-setup.exe` (about 2.08 MiB). This verifies packaging and the installer-size target for this build; the installer has not been installed on a clean VM. It is unsigned.
 
 ### Interactive validation (2026-11-02)
 
@@ -32,11 +32,11 @@ The same harness migrated the existing smoke database in place (`user_version` 2
 
 ### Phase 5 native validation (2026-11-03)
 
-The same harness migrated the smoke database in place (`user_version` 3 → 4) and confirmed the rolling startup backup (`backups/daybridge-2026-11-03.sqlite3`). It created a habit, logged it, saved an end-of-day review, started and stopped a focus session linked to a task, exported JSON and Markdown (`exports/`), and imported the JSON export back; the import reported zero inserts and 23 skipped existing records, as designed. A recurring task (daily rule) was completed and its next occurrence was created for the following day with the rule preserved, in the same transaction. The process stayed responsive throughout. A 3-second focus session correctly records zero whole minutes; the minute rollup is covered by the Rust test with a 30-minute session.
+The same harness migrated the smoke database in place (`user_version` 3 → 4) and confirmed the rolling startup backup (`backups/dayboard-2026-11-03.sqlite3`). It created a habit, logged it, saved an end-of-day review, started and stopped a focus session linked to a task, exported JSON and Markdown (`exports/`), and imported the JSON export back; the import reported zero inserts and 23 skipped existing records, as designed. A recurring task (daily rule) was completed and its next occurrence was created for the following day with the rule preserved, in the same transaction. The process stayed responsive throughout. A 3-second focus session correctly records zero whole minutes; the minute rollup is covered by the Rust test with a 30-minute session.
 
 ### Phase 6 native validation (2026-11-03)
 
-The bridge was enabled from Preferences (checkbox plus a generated 32-character token), previewing that it stays off by default (no listener before enabling). After a restart the app logged `Daybridge bridge listening on 127.0.0.1:8765`. A raw unauthenticated `/rpc` request returned `HTTP/1.1 401 Unauthorized`; authenticated `ping`, `tools/list` (seven tools), `dayboard.command` (create task) and `dayboard.today_summary` succeeded over HTTP with the bearer token. The new task appeared in the open UI through the change notifier, and `dayboard.undo` soft-deleted it and removed it from the UI. The process stayed responsive. The bridge remains disabled in the default/real data directory; enabling it is explicit and requires a token.
+The bridge was enabled from Preferences (checkbox plus a generated 32-character token), previewing that it stays off by default (no listener before enabling). After a restart the app logged `Dayboard bridge listening on 127.0.0.1:8765`. A raw unauthenticated `/rpc` request returned `HTTP/1.1 401 Unauthorized`; authenticated `ping`, `tools/list` (seven tools), `dayboard.command` (create task) and `dayboard.today_summary` succeeded over HTTP with the bearer token. The new task appeared in the open UI through the change notifier, and `dayboard.undo` soft-deleted it and removed it from the UI. The process stayed responsive. The bridge remains disabled in the default/real data directory; enabling it is explicit and requires a token.
 
 ### Performance measurements (2026-11-03)
 
@@ -54,7 +54,7 @@ The release snapshot p95 is inside the 10 ms query target at this sample size. T
 
 ### Phase 7 native validation (2026-11-03)
 
-On a database without `onboarded`, the welcome card's **Got it** action saved `onboarded: true` and removed the card. Enabling **Start Daybridge on login** saved `autostart: true`; because this was a development build, no `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\Daybridge` value was written (verified absent), matching the documented dev-build skip. The app stayed responsive. Packaged-build autostart, clean-VM installation, signing/notarization and the hosted updater remain manual acceptance items.
+On a database without `onboarded`, the welcome card's **Got it** action saved `onboarded: true` and removed the card. Enabling **Start Dayboard on login** saved `autostart: true`; because this was a development build, no `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\Dayboard` value was written (verified absent), matching the documented dev-build skip. The app stayed responsive. Packaged-build autostart, clean-VM installation, signing/notarization and the hosted updater remain manual acceptance items.
 
 ## Dependency audit
 

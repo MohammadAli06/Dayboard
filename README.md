@@ -1,4 +1,4 @@
-# Daybridge
+# Dayboard
 
 A quiet, local-first desktop task planner. Capture a thought, give it a place in your day, and get back to work.
 
@@ -60,17 +60,17 @@ Recognized metadata tokens are removed from the title. Date-only capture means 1
 | X / E                    | Complete or reopen / edit selected task                                |
 | Escape                   | Close editor, palette or capture                                       |
 
-Closing the main window **hides it to the tray**. Choose **Quit** in the tray menu to exit. Enable OS notifications for Daybridge. Reminders run in Rust even when the window is hidden; the app must remain running. Install a packaged build for the most reliable Windows notification identity. Autostart is opt-in in Preferences and is applied by packaged builds.
+Closing the main window **hides it to the tray**. Choose **Quit** in the tray menu to exit. Enable OS notifications for Dayboard. Reminders run in Rust even when the window is hidden; the app must remain running. Install a packaged build for the most reliable Windows notification identity. Autostart is opt-in in Preferences and is applied by packaged builds.
 
 ## Data and privacy
 
-SQLite lives in Tauri's app-data directory under `dev.daybridge.desktop`, never in the Git checkout:
+SQLite lives in Tauri's app-data directory under `dev.dayboard.desktop`, never in the Git checkout:
 
-- Windows: `%APPDATA%\dev.daybridge.desktop\daybridge.sqlite3`
-- macOS: `~/Library/Application Support/dev.daybridge.desktop/daybridge.sqlite3`
-- Linux: `~/.local/share/dev.daybridge.desktop/daybridge.sqlite3`
+- Windows: `%APPDATA%\dev.dayboard.desktop\dayboard.sqlite3`
+- macOS: `~/Library/Application Support/dev.dayboard.desktop/dayboard.sqlite3`
+- Linux: `~/.local/share/dev.dayboard.desktop/dayboard.sqlite3`
 
-For an isolated testing or portable data directory, set `DAYBRIDGE_DATA_DIR` to an absolute directory before starting the app. The default remains the OS app-data directory.
+For an isolated testing or portable data directory, set `DAYBOARD_DATA_DIR` to an absolute directory before starting the app. The default remains the OS app-data directory.
 
 The DB uses WAL, migrations and foreign keys. Mutations and audit events commit together. Deleted tasks are retained; task history can contain previous titles/notes. The database is **not encrypted**. To manually back up, quit through the tray and copy the database; while running, SQLite may also need its WAL file. Exports and rolling backups (newest seven) are written under `exports/` and `backups/` in the same app-data directory. Import is additive and skips IDs that already exist.
 
@@ -81,7 +81,7 @@ The app makes no runtime network requests. Installing dependencies and building 
 The bridge exposes the same typed commands to a local MCP/JSON-RPC client. It is disabled unless you enable it:
 
 1. **Preferences → Jarvis bridge**, tick **Enable local bridge**, choose a port (default 8765), click **Generate token**, then **Save preferences**.
-2. Restart Daybridge. The log prints `Daybridge bridge listening on 127.0.0.1:8765`.
+2. Restart Dayboard. The log prints `Dayboard bridge listening on 127.0.0.1:8765`.
 
 It binds loopback only and requires `Authorization: Bearer <token>` on every route except `/health`. The token is stored in the local settings row; the database is not encrypted.
 
@@ -94,17 +94,17 @@ It binds loopback only and requires `Authorization: Bearer <token>` on every rou
 
 ```sh
 curl -s http://127.0.0.1:8765/rpc \
-  -H "Authorization: Bearer $DAYBRIDGE_TOKEN" \
+  -H "Authorization: Bearer $DAYBOARD_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","id":1,"method":"dayboard.today_summary"}'
 ```
 
-Methods: `dayboard.command` (any typed command), `dayboard.today_summary`, `dayboard.overdue`, `dayboard.weekly_stats`, `dayboard.dsa_weak_topics`, `dayboard.search`, `dayboard.undo` and `dayboard.schema`. MCP tools mirror these as `daybridge_*`. Mutations refresh the open UI and rearm reminders.
+Methods: `dayboard.command` (any typed command), `dayboard.today_summary`, `dayboard.overdue`, `dayboard.weekly_stats`, `dayboard.dsa_weak_topics`, `dayboard.search`, `dayboard.undo` and `dayboard.schema`. MCP tools mirror these as `dayboard_*`. Mutations refresh the open UI and rearm reminders.
 
 For a stdio MCP client, run the standalone bridge against the same database:
 
 ```sh
-cargo run -p dayboard-bridge -- --db "%APPDATA%\dev.daybridge.desktop\daybridge.sqlite3"
+cargo run -p dayboard-bridge -- --db "%APPDATA%\dev.dayboard.desktop\dayboard.sqlite3"
 ```
 
 Add `--port 8765 --token <token>` to serve HTTP instead. Do not run two HTTP bridges on one port. The in-app listener is recommended while the UI is open because it pushes change notifications. The bridge never starts by default and makes no outbound network requests.
@@ -118,7 +118,7 @@ uv tool install specify-cli --from git+https://github.com/github/spec-kit.git@73
 specify check
 ```
 
-The pinned revision identifies the initialization tooling used here. `uv` is needed only for Spec Kit, not for running Daybridge. Shared infrastructure is in `.specify/` and reusable Codex skills in `.agents/skills/`. No local agent credentials are committed.
+The pinned revision identifies the initialization tooling used here. `uv` is needed only for Spec Kit, not for running Dayboard. Shared infrastructure is in `.specify/` and reusable Codex skills in `.agents/skills/`. No local agent credentials are committed.
 
 Read the [constitution](.specify/memory/constitution.md), [feature spec](specs/001-desktop-foundation/spec.md), [plan](specs/001-desktop-foundation/plan.md) and [tasks](specs/001-desktop-foundation/tasks.md). In a Codex session, use the installed workflow:
 
