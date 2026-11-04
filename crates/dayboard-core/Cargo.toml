@@ -12,7 +12,7 @@ chrono-tz.workspace = true
 schemars.workspace = true
 rusqlite = { version = "0.37", features = ["bundled", "backup"] }
 rusqlite_migration = "2.3"
-ulid = "1"
+ulid = "3"
 thiserror = "2"
 regex = "1"
 [dev-dependencies]
